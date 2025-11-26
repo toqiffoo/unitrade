@@ -1,0 +1,163 @@
+/* General Body Styles */
+body {
+  background: linear-gradient(to right, #e9f1ff, #ffffff);
+  font-family: 'Segoe UI', sans-serif;
+}
+
+/* Card Styling */
+.card {
+  border-radius: 15px;
+}
+
+/* Button Styles */
+.btn-primary {
+  background-color: #004aad;
+  border: none;
+}
+
+.btn-primary:hover {
+  background-color: #00347a;
+}
+
+/* === Dashboard Page === */
+.card img {
+  height: 200px;
+  object-fit: cover;
+}
+
+footer {
+  font-size: 14px;
+}
+
+/* === Chat Page === */
+.chat-box {
+  background-color: #f8f9fa;
+  height: 400px;
+  overflow-y: auto;
+}
+
+.message {
+  max-width: 75%;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border-radius: 15px;
+  position: relative;
+  font-size: 15px;
+}
+
+.message p {
+  margin: 0;
+}
+
+.message.seller {
+  background-color: #e2e3e5;
+  align-self: flex-start;
+}
+
+.message.buyer {
+  background-color: #004aad;
+  color: white;
+  margin-left: auto;
+  align-self: flex-end;
+}
+
+.message .time {
+  font-size: 12px;
+  color: gray;
+  display: block;
+  text-align: right;
+  margin-top: 4px;
+}
+
+.card-footer {
+  background-color: white;
+  border-top: 1px solid #ddd;
+}
+
+/* === Sell Page === */
+form label {
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+form input, form textarea {
+  margin-bottom: 15px;
+}
+
+form button {
+  width: 100%;
+  background-color: #004aad;
+  color: white;
+  font-size: 16px;
+}
+
+form button:hover {
+  background-color: #00347a;
+}
+
+h2 {
+  font-size: 28px;
+  font-weight: bold;
+  margin-bottom: 20px;
+}
+
+/* === Profile Page === */
+.profile-info {
+  margin-bottom: 20px;
+}
+
+.profile-info p {
+  font-size: 18px;
+}
+
+.profile-info strong {
+  font-weight: bold;
+}
+
+.profile-info span {
+  color: #004aad;
+}
+
+button {
+  background-color: #004aad;
+  color: white;
+}
+
+button:hover {
+  background-color: #00347a;
+}
+
+h2 {
+  font-size: 28px;
+  font-weight: bold;
+  margin-bottom: 20px;
+}
+
+/* === Settings Page === */
+form input {
+  margin-bottom: 15px;
+}
+
+form button {
+  width: 100%;
+  font-size: 16px;
+}
+
+form button:hover {
+  background-color: #00347a;
+}
+
+h2 {
+  font-size: 28px;
+  font-weight: bold;
+  margin-bottom: 20px;
+}
+
+/* General Footer Styling */
+footer {
+  font-size: 14px;
+  text-align: center;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-top: 1px solid #ddd;
+}

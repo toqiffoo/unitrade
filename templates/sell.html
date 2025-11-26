@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UniTrade | List Item</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}">UniTrade</a>
+            <div class="collapse navbar-collapse justify-content-end" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}">Home</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="{{ url_for('sell') }}">Sell</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('profile') }}">Profile</a></li> 
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('settings') }}">Settings</a></li> 
+                    <li class="nav-item"><a class="btn btn-danger btn-sm ms-2" href="{{ url_for('logout') }}">Logout</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container my-5">
+        <div class="row">
+            <div class="col-md-8 mx-auto">
+                <div class="card shadow-lg p-4">
+                    <h3 class="text-primary mb-4">List a New Item for Sale</h3>
+                    
+                    <div id="message" class="alert d-none" role="alert"></div>
+
+                    <form id="sell-form" method="POST" enctype="multipart/form-data">
+                        
+                        <div class="mb-3">
+                            <label for="name" class="form-label">Product Name</label>
+                            <input type="text" class="form-control" id="name" name="name" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="description" class="form-label">Description</label>
+                            <textarea class="form-control" id="description" name="description" rows="3" required></textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="price" class="form-label">Price (RM)</label>
+                            <input type="number" class="form-control" id="price" name="price" step="0.01" required>
+                        </div>
+
+                        <div class="mb-4">
+                            <label for="image" class="form-label">Product Image</label>
+                            <input type="file" class="form-control" id="image" name="image" accept="image/*" required>
+                            <small class="form-text text-muted">Max file size: 2MB</small>
+                        </div>
+
+                        <button type="submit" class="btn btn-success w-100" id="list-btn">List Item</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Scripts for Firebase Storage Upload Logic -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-storage.js"></script>
+
+    <script>
+        // Paste your existing firebaseConfig object here again
+        const firebaseConfig = {
+            apiKey: "AIzaSyDtTsByQ3oaYkSTJw9s9BVpdLoJ5yQ5rDE",
+            authDomain: "unitrade-839f0.firebaseapp.com",
+            projectId: "unitrade-839f0",
+            storageBucket: "unitrade-839f0.firebasestorage.app", 
+            messagingSenderId: "684492149556",
+            appId: "1:684492149556:web:8049eedd828f4b99b60b61",
+            measurementId: "G-FESZB67P9B"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const storage = firebase.storage(); 
+        const auth = firebase.auth(); 
+
+        const sellForm = document.getElementById('sell-form');
+        const messageDiv = document.getElementById('message');
+        const listBtn = document.getElementById('list-btn');
+
+        sellForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const name = document.getElementById('name').value;
+            const description = document.getElementById('description').value;
+            const price = document.getElementById('price').value;
+            const imageFile = document.getElementById('image').files[0];
+
+            if (!imageFile) {
+                messageDiv.textContent = 'Please select an image.';
+                messageDiv.className = 'alert alert-danger';
+                messageDiv.classList.remove('d-none');
+                return;
+            }
+
+            messageDiv.classList.add('d-none');
+            listBtn.disabled = true;
+            listBtn.textContent = 'Uploading Image...';
+
+            try {
+                // Check if user is logged in
+                const user = firebase.auth().currentUser;
+                if (!user) {
+                     messageDiv.textContent = 'User not authenticated. Please log in.';
+                     messageDiv.className = 'alert alert-danger';
+                     return;
+                }
+                
+                // 1. Upload to Firebase Storage
+                const filePath = `products/${user.uid}/${Date.now()}_${imageFile.name}`;
+                const storageRef = storage.ref(filePath);
+                
+                const snapshot = await storageRef.put(imageFile);
+                const imageUrl = await snapshot.ref.getDownloadURL();
+
+                listBtn.textContent = 'Saving to Firestore...';
+
+                // 2. Send data (including the public URL and ID Token) to the Flask API
+                const response = await fetch('/api/sell', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        name, 
+                        description, 
+                        price, 
+                        image_url: imageUrl, 
+                        idToken: await user.getIdToken() 
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    messageDiv.textContent = data.message;
+                    messageDiv.className = 'alert alert-success';
+                    setTimeout(() => {
+                        window.location.href = data.redirect_url;
+                    }, 1500);
+                } else {
+                    messageDiv.textContent = data.message || 'Listing failed on the server.';
+                    messageDiv.className = 'alert alert-danger';
+                }
+            } catch (error) {
+                console.error('Upload/API Error:', error);
+                messageDiv.textContent = `Error: ${error.message || 'Failed to connect to Firebase services.'}`;
+                messageDiv.className = 'alert alert-danger';
+            } finally {
+                listBtn.disabled = false;
+                listBtn.textContent = 'List Item';
+                messageDiv.classList.remove('d-none');
+            }
+        });
+    </script>
+</body>
+</html>
