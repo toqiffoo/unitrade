@@ -15,7 +15,7 @@ app.config['SECRET_KEY'] = 'YOUR_VERY_STRONG_SECRET_KEY_FOR_SESSIONS'
 
 # Looking to send emails in production? Check out our Email API/SMTP product!
 app.config['MAIL_SERVER']='sandbox.smtp.mailtrap.io'
-app.config['MAIL_PORT'] = 2525
+app.config['MAIL_PORT'] = 587
 app.config['MAIL_USERNAME'] = 'cad59bfc8c172b'
 app.config['MAIL_PASSWORD'] = '5856f8bc0a3f03'
 app.config['MAIL_USE_TLS'] = True
@@ -495,6 +495,44 @@ def api_handle_order():
             db.collection('products').document(order_data['item_id']).update({'status': 'sold'})
             
             # 3. Notify Buyer (Optional: You could add a chat message here)
+            message = "Order Accepted! Item marked as Sold."
+            
+        elif action == 'reject':
+            order_ref.update({'status': 'rejected'})
+            message = "Order Rejected."
+
+        return jsonify({'success': True, 'message': message})
+
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# NEW: Handle Accept/Reject Order
+@app.route('/api/handle_order', methods=['POST'])
+@login_required
+def api_handle_order():
+    data = request.get_json()
+    order_id = data.get('order_id')
+    action = data.get('action') # 'accept' or 'reject'
+    
+    try:
+        order_ref = db.collection('transactions').document(order_id)
+        order = order_ref.get()
+        
+        if not order.exists: return jsonify({'success': False, 'message': 'Order not found'}), 404
+        
+        order_data = order.to_dict()
+        
+        # Verify this user is the actual seller
+        if order_data['seller_uid'] != session['uid']:
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+        if action == 'accept':
+            # 1. Update Order Status
+            order_ref.update({'status': 'completed'})
+            
+            # 2. Mark Product as SOLD so it disappears from the marketplace
+            db.collection('products').document(order_data['item_id']).update({'status': 'sold'})
+            
             message = "Order Accepted! Item marked as Sold."
             
         elif action == 'reject':
