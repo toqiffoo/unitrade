@@ -53,12 +53,18 @@
         </div>
     </div>
 
-    <ul class="nav nav-tabs mb-4" id="myTab" role="tablist">
+   <ul class="nav nav-tabs mb-4" id="myTab" role="tablist">
         <li class="nav-item" role="presentation">
             <button class="nav-link active" id="products-tab" data-bs-toggle="tab" data-bs-target="#products-pane" type="button">🛍️ Products</button>
         </li>
         <li class="nav-item" role="presentation">
             <button class="nav-link" id="services-tab" data-bs-toggle="tab" data-bs-target="#services-pane" type="button">💇‍♂️ Services</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link fw-bold text-primary" id="orders-tab" data-bs-toggle="tab" data-bs-target="#orders-pane" type="button">
+                📦 Incoming Orders 
+                {% if orders %}<span class="badge bg-danger ms-1">{{ orders|length }}</span>{% endif %}
+            </button>
         </li>
     </ul>
 
@@ -86,14 +92,8 @@
                                 <p class="card-text fw-bold text-success mt-auto">RM {{ "%.2f"|format(product.price) }}</p>
                                 
                                 <div class="d-flex gap-2 mt-2">
-                                    <button class="btn btn-success flex-grow-1" 
-                                            onclick="openBuyModal('{{ product.id }}', '{{ product.name }}', '{{ product.seller_uid }}')">
-                                        Buy Request
-                                    </button>
-                                    
-                                    <a href="{{ url_for('chat', seller_uid=product.seller_uid, item_id=product.id) }}" class="btn btn-outline-primary">
-                                        💬
-                                    </a>
+                                    <button class="btn btn-success flex-grow-1" onclick="openBuyModal('{{ product.id }}', '{{ product.name }}', '{{ product.seller_uid }}')">Buy Request</button>
+                                    <a href="{{ url_for('chat', seller_uid=product.seller_uid, item_id=product.id) }}" class="btn btn-outline-primary">💬</a>
                                 </div>
                             </div>
                         </div>
@@ -143,8 +143,62 @@
                 {% endif %}
             </div>
         </div>
+
+        <div class="tab-pane fade" id="orders-pane">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title mb-4">Incoming Requests</h5>
+                    {% if orders %}
+                        <div class="list-group">
+                        {% for order in orders %}
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-1 fw-bold">{{ order.item_name }}</h6>
+                                    <p class="mb-1 text-muted small">Buyer: {{ order.buyer_email }}</p>
+                                    <span class="badge bg-secondary">{{ order.payment_method }}</span>
+                                    {% if order.proof_image %}
+                                        <a href="{{ order.proof_image }}" target="_blank" class="badge bg-primary text-decoration-none">View Receipt</a>
+                                    {% endif %}
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <button onclick="handleOrder('{{ order.id }}', 'accept')" class="btn btn-success btn-sm">Accept & Sold</button>
+                                    <button onclick="handleOrder('{{ order.id }}', 'reject')" class="btn btn-danger btn-sm">Reject</button>
+                                </div>
+                            </div>
+                        {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="text-center text-muted py-3">No pending orders yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
     </div>
 </div>
+
+<script>
+    // ... (Keep submitReport and openBuyModal logic) ...
+
+    // NEW: Handle Order Script
+    async function handleOrder(orderId, action) {
+        if(!confirm(`Are you sure you want to ${action} this order?`)) return;
+
+        try {
+            const response = await fetch('/api/handle_order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ order_id: orderId, action: action })
+            });
+            const data = await response.json();
+            alert(data.message);
+            location.reload();
+        } catch (error) {
+            console.error(error);
+            alert("Error processing order.");
+        }
+    }
+</script>
 
 <div class="modal fade" id="buyModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">

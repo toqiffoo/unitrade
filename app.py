@@ -81,33 +81,48 @@ def register():
 def dashboard():
     global db
     user_email = session.get('user_email', 'User')
+    current_uid = session.get('uid') # Needed for fetching orders
     is_admin = user_email in ADMIN_EMAILS 
     search_query = request.args.get('q', '').lower()
     
     products = []
     services = []
+    orders = [] # NEW: List for incoming buy requests
 
     try:
+        # 1. Fetch Products (Exclude sold ones)
         products_ref = db.collection('products').order_by('created_at', direction=firestore.Query.DESCENDING).stream()
         for doc in products_ref:
             p = doc.to_dict()
             p['id'] = doc.id
-            # Filter out sold items (optional, but good for UX)
             if p.get('status') != 'sold': 
                 if not search_query or (search_query in p.get('name', '').lower() or search_query in p.get('description', '').lower()):
                     products.append(p)
 
+        # 2. Fetch Services
         services_ref = db.collection('services').order_by('created_at', direction=firestore.Query.DESCENDING).stream()
         for doc in services_ref:
             s = doc.to_dict()
             s['id'] = doc.id
             if not search_query or (search_query in s.get('service_type', '').lower() or search_query in s.get('description', '').lower()):
                 services.append(s)
+
+        # 3. NEW: Fetch Incoming Orders for this Seller
+        orders_ref = db.collection('transactions').where('seller_uid', '==', current_uid).where('status', '==', 'pending_approval').stream()
+        for doc in orders_ref:
+            o = doc.to_dict()
+            o['id'] = doc.id
+            orders.append(o)
             
     except Exception as e:
         print(f"Error fetching data: {e}")
 
-    return render_template('dashboard.html', user_email=user_email, products=products, services=services, is_admin=is_admin)
+    return render_template('dashboard.html', 
+                           user_email=user_email, 
+                           products=products, 
+                           services=services, 
+                           orders=orders, # Pass orders to template
+                           is_admin=is_admin)
 
 @app.route('/inbox')
 @login_required
@@ -451,6 +466,45 @@ def api_update_profile():
         })
         return jsonify({'success': True, 'message': 'Updated.'})
     except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
+
+    # NEW: Handle Accept/Reject Order
+@app.route('/api/handle_order', methods=['POST'])
+@login_required
+def api_handle_order():
+    data = request.get_json()
+    order_id = data.get('order_id')
+    action = data.get('action') # 'accept' or 'reject'
+    
+    try:
+        order_ref = db.collection('transactions').document(order_id)
+        order = order_ref.get()
+        
+        if not order.exists: return jsonify({'success': False, 'message': 'Order not found'}), 404
+        
+        order_data = order.to_dict()
+        
+        # Verify this user is the actual seller
+        if order_data['seller_uid'] != session['uid']:
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+        if action == 'accept':
+            # 1. Update Order Status
+            order_ref.update({'status': 'completed'})
+            
+            # 2. Mark Product as SOLD
+            db.collection('products').document(order_data['item_id']).update({'status': 'sold'})
+            
+            # 3. Notify Buyer (Optional: You could add a chat message here)
+            message = "Order Accepted! Item marked as Sold."
+            
+        elif action == 'reject':
+            order_ref.update({'status': 'rejected'})
+            message = "Order Rejected."
+
+        return jsonify({'success': True, 'message': message})
+
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
