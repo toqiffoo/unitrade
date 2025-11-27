@@ -1,19 +1,32 @@
 import os
 import json 
+import random  # <--- Added
+import string  # <--- Added
 import firebase_admin
 from firebase_admin import credentials, auth, firestore, storage
 from flask import Flask, render_template, request, redirect, url_for, session, make_response, jsonify
+from flask_mail import Mail, Message # <--- Added
 import google.auth.transport.requests
 
 # --- CONFIGURATION & DATABASE CONNECTION ---
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'YOUR_VERY_STRONG_SECRET_KEY_FOR_SESSIONS' 
 
+# Looking to send emails in production? Check out our Email API/SMTP product!
+app.config['MAIL_SERVER']='sandbox.smtp.mailtrap.io'
+app.config['MAIL_PORT'] = 2525
+app.config['MAIL_USERNAME'] = 'cad59bfc8c172b'
+app.config['MAIL_PASSWORD'] = '5856f8bc0a3f03'
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USE_SSL'] = False
+
+# --- CRITICAL FIX: INITIALIZE MAIL ---
+mail = Mail(app) 
+
 KEY_FILE_NAME = 'key.json' 
 STORAGE_BUCKET = "unitrade-839f0.firebasestorage.app" 
 
 # --- ADMIN CONFIGURATION ---
-# REPLACE THIS with your actual email to give yourself access!
 ADMIN_EMAILS = ["test@unitrade.com"]
 
 # Initialize variables
@@ -107,7 +120,6 @@ def dashboard():
     except Exception as e:
         print(f"Error fetching data: {e}")
 
-    # 2. Pass 'is_admin' to the template
     return render_template('dashboard.html', user_email=user_email, products=products, services=services, is_admin=is_admin)
 
 @app.route('/inbox')
@@ -139,7 +151,6 @@ def inbox():
 def sell():
     return render_template('sell.html')
 
-# NEW: Route for the Service Listing Page
 @app.route('/offer_service', methods=['GET'])
 @login_required 
 def offer_service():
@@ -159,14 +170,12 @@ def profile():
         if user_doc.exists:
             user_info = user_doc.to_dict()
 
-        # Get User's Products
         products_ref = db.collection('products').where('seller_uid', '==', current_uid).stream()
         for doc in products_ref:
             p = doc.to_dict()
             p['id'] = doc.id
             user_products.append(p)
 
-        # Get User's Services
         services_ref = db.collection('services').where('provider_uid', '==', current_uid).stream()
         for doc in services_ref:
             s = doc.to_dict()
@@ -235,24 +244,57 @@ def api_signup():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
+# 1. MODIFIED LOGIN: Generate OTP
 @app.route('/api/login', methods=['POST'])
 def api_login():
     data = request.get_json()
-    id_token = data.get('idToken') 
-    email = data.get('email') 
     try:
-        # Verify the token
-        decoded_token = auth.verify_id_token(id_token)
+        # Verify Token (Clock skew fix included)
+        decoded_token = auth.verify_id_token(data['idToken'], clock_skew_seconds=60)
         uid = decoded_token['uid']
+        email = data['email']
+
+        # Generate OTP
+        otp = ''.join(random.choices(string.digits, k=6))
         
-        session['logged_in'] = True
-        session['uid'] = uid
-        session['user_email'] = email
-        return jsonify({'success': True, 'redirect_url': url_for('dashboard')})
+        # Store in Session
+        session['temp_uid'] = uid
+        session['temp_email'] = email
+        session['mfa_otp'] = otp
+        
+        # Send Email via Mailtrap
+        msg = Message('Your UniTrade Login Code', sender='security@unitrade.com', recipients=[email])
+        msg.body = f"Your verification code is: {otp}"
+        mail.send(msg)
+        
+        print(f"DEBUG: Sent OTP {otp} to {email}")
+
+        return jsonify({'success': True, 'mfa_required': True, 'message': 'OTP sent! Check your email.'})
+
     except Exception as e:
-        # PRINT THE ERROR SO WE CAN SEE IT
         print(f"Login Error: {e}")
         return jsonify({'success': False, 'message': 'Login failed.'}), 401
+
+# 2. NEW ROUTE: Verify OTP
+@app.route('/api/verify_mfa', methods=['POST'])
+def api_verify_mfa():
+    data = request.get_json()
+    user_otp = data.get('otp')
+    
+    if 'mfa_otp' in session and session['mfa_otp'] == user_otp:
+        # Success! Log them in fully.
+        session['logged_in'] = True
+        session['uid'] = session['temp_uid']
+        session['user_email'] = session['temp_email']
+        
+        # Clean up temp session
+        session.pop('temp_uid', None)
+        session.pop('temp_email', None)
+        session.pop('mfa_otp', None)
+        
+        return jsonify({'success': True, 'redirect_url': url_for('dashboard')})
+    else:
+        return jsonify({'success': False, 'message': 'Invalid Code'}), 400
 
 @app.route('/api/sell', methods=['POST'])
 def api_sell():
@@ -280,7 +322,6 @@ def api_sell():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
-# NEW: API to List a Service
 @app.route('/api/offer_service', methods=['POST'])
 def api_offer_service():
     data = request.get_json()
@@ -297,23 +338,22 @@ def api_offer_service():
             'provider_uid': user_uid,
             'provider_email': decoded_token.get('email'),
             'provider_name': user_name,
-            'service_type': data.get('service_type'), # e.g., Barber, Runner
+            'service_type': data.get('service_type'), 
             'description': data.get('description'),
             'price': float(data.get('price')),
             'image_url': data.get('image_url'), 
-            'is_available': True, # Default to available
+            'is_available': True,
             'created_at': firestore.SERVER_TIMESTAMP
         })
         return jsonify({'success': True, 'redirect_url': url_for('dashboard')})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
-# NEW: API to Toggle Service Availability
 @app.route('/api/toggle_service', methods=['POST'])
 def api_toggle_service():
     data = request.get_json()
     service_id = data.get('service_id')
-    new_status = data.get('status') # True or False
+    new_status = data.get('status')
     
     try:
         service_ref = db.collection('services').document(service_id)
@@ -366,19 +406,16 @@ def api_update_profile():
         return jsonify({'success': True, 'message': 'Profile updated.'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
-    
-    # --- ADMIN & REPORTING ROUTES ---
+
+# --- ADMIN & REPORTING ROUTES ---
 
 @app.route('/admin')
 @login_required
 def admin_dashboard():
     user_email = session.get('user_email')
-    
-    # Security Check: Is this user an Admin?
     if user_email not in ADMIN_EMAILS:
         return "Access Denied: You are not an administrator.", 403
 
-    # Fetch all reports
     reports = []
     try:
         reports_ref = db.collection('reports').order_by('timestamp', direction=firestore.Query.DESCENDING).stream()
@@ -396,20 +433,15 @@ def admin_dashboard():
 def api_report():
     data = request.get_json()
     item_id = data.get('item_id')
-    item_type = data.get('item_type') # 'product' or 'service'
+    item_type = data.get('item_type')
     reason = data.get('reason')
     
     try:
-        # Get details of the item being reported
         item_ref = db.collection('products' if item_type == 'product' else 'services').document(item_id)
         item = item_ref.get()
-        
-        if not item.exists:
-            return jsonify({'success': False, 'message': 'Item not found.'}), 404
-            
+        if not item.exists: return jsonify({'success': False, 'message': 'Item not found.'}), 404
         item_data = item.to_dict()
         
-        # Save Report to Database
         db.collection('reports').add({
             'reporter_uid': session['uid'],
             'reporter_email': session['user_email'],
@@ -418,46 +450,32 @@ def api_report():
             'item_name': item_data.get('name') if item_type == 'product' else item_data.get('service_type'),
             'item_image': item_data.get('image_url'),
             'reason': reason,
-            'status': 'pending', # pending, resolved
+            'status': 'pending',
             'timestamp': firestore.SERVER_TIMESTAMP
         })
-        
         return jsonify({'success': True, 'message': 'Report submitted to Admin.'})
-        
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/admin_action', methods=['POST'])
 @login_required
 def api_admin_action():
-    # Double security check
     if session.get('user_email') not in ADMIN_EMAILS:
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
-        
     data = request.get_json()
-    report_id = data.get('report_id')
-    action = data.get('action') # 'delete_item' or 'dismiss'
-    
     try:
-        report_ref = db.collection('reports').document(report_id)
+        report_ref = db.collection('reports').document(data['report_id'])
         report = report_ref.get().to_dict()
         
-        if action == 'delete_item':
-            # 1. Delete the actual item from database
-            collection = 'products' if report['item_type'] == 'product' else 'services'
-            db.collection(collection).document(report['item_id']).delete()
-            
-            # 2. Mark report as resolved
+        if data['action'] == 'delete_item':
+            col = 'products' if report['item_type'] == 'product' else 'services'
+            db.collection(col).document(report['item_id']).delete()
             report_ref.update({'status': 'resolved_banned'})
             message = "Item deleted and user flagged."
-            
-        elif action == 'dismiss':
-            # Just close the report
+        elif data['action'] == 'dismiss':
             report_ref.update({'status': 'dismissed'})
             message = "Report dismissed."
-            
         return jsonify({'success': True, 'message': message})
-        
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
