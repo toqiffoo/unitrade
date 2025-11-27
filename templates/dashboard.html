@@ -7,7 +7,6 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <style>
-      /* Status Badge for Services */
       .badge-avail { background-color: #28a745; color: white; padding: 5px 10px; border-radius: 12px; font-size: 0.8rem; }
       .badge-unavail { background-color: #dc3545; color: white; padding: 5px 10px; border-radius: 12px; font-size: 0.8rem; }
   </style>
@@ -75,19 +74,27 @@
                             <div class="card-body d-flex flex-column">
                                 <div class="d-flex justify-content-between align-items-start">
                                     <h5 class="card-title">{{ product.name }}</h5>
-                                    
                                     <div class="dropdown">
                                         <button class="btn btn-link text-muted p-0" data-bs-toggle="dropdown">⋮</button>
                                         <ul class="dropdown-menu dropdown-menu-end">
                                             <li><a class="dropdown-item text-danger" href="#" onclick="submitReport('{{ product.id }}', 'product')">🚩 Report Listing</a></li>
                                         </ul>
                                     </div>
-
                                 </div>
                                 <p class="text-muted small mb-2">Seller: {{ product.seller_name }}</p>
                                 <p class="card-text">{{ product.description | truncate(60) }}</p>
                                 <p class="card-text fw-bold text-success mt-auto">RM {{ "%.2f"|format(product.price) }}</p>
-                                <a href="{{ url_for('chat', seller_uid=product.seller_uid) }}" class="btn btn-primary w-100 mt-2">Chat Seller</a>
+                                
+                                <div class="d-flex gap-2 mt-2">
+                                    <button class="btn btn-success flex-grow-1" 
+                                            onclick="openBuyModal('{{ product.id }}', '{{ product.name }}', '{{ product.seller_uid }}')">
+                                        Buy Request
+                                    </button>
+                                    
+                                    <a href="{{ url_for('chat', seller_uid=product.seller_uid, item_id=product.id) }}" class="btn btn-outline-primary">
+                                        💬
+                                    </a>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -119,15 +126,13 @@
                                 <p class="fw-bold mt-auto">Starts at RM {{ "%.2f"|format(service.price) }}</p>
                                 
                                 <div class="d-flex gap-2">
-                                    <a href="{{ url_for('chat', seller_uid=service.provider_uid) }}" class="btn btn-primary flex-grow-1">Book Now</a>
-                                    
+                                    <a href="{{ url_for('chat', seller_uid=service.provider_uid, item_id=service.id) }}" class="btn btn-primary flex-grow-1">Book Now</a>
                                     <div class="dropdown">
                                         <button class="btn btn-outline-secondary" data-bs-toggle="dropdown">⋮</button>
                                         <ul class="dropdown-menu dropdown-menu-end">
                                             <li><a class="dropdown-item text-danger" href="#" onclick="submitReport('{{ service.id }}', 'service')">🚩 Report Service</a></li>
                                         </ul>
                                     </div>
-
                                 </div>
                             </div>
                         </div>
@@ -141,27 +146,138 @@
     </div>
 </div>
 
+<div class="modal fade" id="buyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h1 class="modal-title fs-5">Purchase Request</h1>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p>You are requesting to buy: <strong id="modal-item-name"></strong></p>
+        <form id="buy-form">
+            <input type="hidden" id="modal-item-id">
+            <input type="hidden" id="modal-seller-uid">
+            
+            <div class="mb-3">
+                <label class="form-label fw-bold">Payment Method</label>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="paymentMethod" id="methodCOD" value="COD" checked onclick="toggleProof(false)">
+                    <label class="form-check-label" for="methodCOD">Cash on Delivery (COD)</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="paymentMethod" id="methodOnline" value="Online Transfer" onclick="toggleProof(true)">
+                    <label class="form-check-label" for="methodOnline">Online Transfer (Upload Receipt)</label>
+                </div>
+            </div>
+
+            <div class="mb-3 d-none" id="proof-section">
+                <label class="form-label">Upload Receipt/Proof</label>
+                <input type="file" class="form-control" id="proof-image" accept="image/*">
+            </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary" onclick="submitBuyRequest()" id="confirm-buy-btn">Send Request</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-storage.js"></script>
+
 <script>
+    // --- FIREBASE INIT (For Storage Upload) ---
+    const firebaseConfig = {
+        apiKey: "AIzaSyDtTsByQ3oaYkSTJw9s9BVpdLoJ5yQ5rDE",
+        authDomain: "unitrade-839f0.firebaseapp.com",
+        projectId: "unitrade-839f0",
+        storageBucket: "unitrade-839f0.firebasestorage.app",
+        messagingSenderId: "684492149556",
+        appId: "1:684492149556:web:8049eedd828f4b99b60b61",
+        measurementId: "G-FESZB67P9B"
+    };
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const storage = firebase.storage();
+
+    // --- REPORT LOGIC ---
     async function submitReport(itemId, itemType) {
         const reason = prompt("Why are you reporting this item? (e.g., Scam, Inappropriate, Fake)");
         if (!reason) return;
-
         try {
             const response = await fetch('/api/report', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ item_id: itemId, item_type: itemType, reason: reason })
             });
-            
             const data = await response.json();
             alert(data.message);
+        } catch (error) { console.error(error); alert("Failed to report."); }
+    }
+
+    // --- BUY MODAL LOGIC ---
+    function openBuyModal(id, name, sellerUid) {
+        document.getElementById('modal-item-id').value = id;
+        document.getElementById('modal-item-name').innerText = name;
+        document.getElementById('modal-seller-uid').value = sellerUid;
+        const modal = new bootstrap.Modal(document.getElementById('buyModal'));
+        modal.show();
+    }
+
+    function toggleProof(show) {
+        const proofDiv = document.getElementById('proof-section');
+        if (show) proofDiv.classList.remove('d-none');
+        else proofDiv.classList.add('d-none');
+    }
+
+    async function submitBuyRequest() {
+        const itemId = document.getElementById('modal-item-id').value;
+        const itemName = document.getElementById('modal-item-name').innerText;
+        const sellerUid = document.getElementById('modal-seller-uid').value;
+        const method = document.querySelector('input[name="paymentMethod"]:checked').value;
+        const proofFile = document.getElementById('proof-image').files[0];
+        const btn = document.getElementById('confirm-buy-btn');
+
+        if (method === 'Online Transfer' && !proofFile) return alert("Please upload a receipt.");
+
+        btn.disabled = true;
+        btn.textContent = "Sending...";
+
+        let proofUrl = null;
+        try {
+            // 1. Upload Proof if exists
+            if (proofFile) {
+                const ref = storage.ref(`receipts/${Date.now()}_${proofFile.name}`);
+                await ref.put(proofFile);
+                proofUrl = await ref.getDownloadURL();
+            }
+
+            // 2. Send API Request
+            const response = await fetch('/api/buy_request', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    item_id: itemId,
+                    item_name: itemName,
+                    seller_uid: sellerUid,
+                    payment_method: method,
+                    proof_image: proofUrl
+                })
+            });
+
+            const data = await response.json();
+            alert(data.message);
+            location.reload(); // Close modal and refresh
+
         } catch (error) {
             console.error(error);
-            alert("Failed to submit report.");
+            alert("Error sending request.");
+            btn.disabled = false;
         }
     }
 </script>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

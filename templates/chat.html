@@ -11,6 +11,8 @@
         .message-bubble { max-width: 80%; padding: 8px 12px; border-radius: 15px; margin-bottom: 10px; word-wrap: break-word; }
         .sent { background-color: #0d6efd; color: white; margin-left: auto; border-bottom-right-radius: 2px; }
         .received { background-color: #e9ecef; color: #333; margin-right: auto; border-bottom-left-radius: 2px; }
+        /* Context Banner */
+        .context-banner { background-color: #e7f1ff; border-bottom: 1px solid #0d6efd; padding: 10px; margin-bottom: 10px; border-radius: 5px; }
     </style>
 </head>
 <body>
@@ -27,6 +29,18 @@
     </nav>
 
     <div class="container mt-4">
+        
+        {% if item_context %}
+        <div class="context-banner d-flex align-items-center">
+            <img src="{{ item_context.image_url }}" width="50" height="50" class="rounded me-3" style="object-fit: cover;">
+            <div>
+                <small class="text-muted d-block">Discussing:</small>
+                <h6 class="mb-0 text-primary fw-bold">{{ item_context.name or item_context.service_type }}</h6>
+                <small>Price: RM {{ "%.2f"|format(item_context.price) }}</small>
+            </div>
+        </div>
+        {% endif %}
+
         <h3 class="mb-3">Chat with <span class="text-primary">{{ opponent_email }}</span></h3>
         
         <div class="chat-window mb-3" id="chat-window">
@@ -58,12 +72,11 @@
         const db = firebase.firestore();
         const auth = firebase.auth();
 
-        // Variables from Flask
         const ROOM_ID = "{{ room_id }}";
         const CURRENT_UID = "{{ current_uid }}";
         const SELLER_UID = "{{ seller_uid }}";
         const OPPONENT_EMAIL = "{{ opponent_email }}";
-        const CURRENT_EMAIL = "{{ current_email }}"; // Need this to save names
+        const CURRENT_EMAIL = "{{ current_email }}";
 
         const CHAT_WINDOW = document.getElementById('chat-window');
         const MESSAGE_FORM = document.getElementById('message-form');
@@ -106,20 +119,16 @@
             const timestamp = firebase.firestore.FieldValue.serverTimestamp();
 
             try {
-                // 1. Add message to subcollection
                 await db.collection('chats').doc(ROOM_ID).collection('messages').add({
                     text: text,
                     timestamp: timestamp,
                     sender_uid: CURRENT_UID
                 });
 
-                // 2. CRITICAL: Update the Parent Chat Document so it appears in Inbox
-                // We save the participants array so we can query "array-contains" later
                 await db.collection('chats').doc(ROOM_ID).set({
                     participants: [CURRENT_UID, SELLER_UID],
                     last_message: text,
                     last_updated: timestamp,
-                    // Save emails map to display names in Inbox without extra queries
                     emails: {
                         [CURRENT_UID]: CURRENT_EMAIL,
                         [SELLER_UID]: OPPONENT_EMAIL
