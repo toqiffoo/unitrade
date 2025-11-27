@@ -506,43 +506,5 @@ def api_handle_order():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
-# NEW: Handle Accept/Reject Order
-@app.route('/api/handle_order', methods=['POST'])
-@login_required
-def api_handle_order():
-    data = request.get_json()
-    order_id = data.get('order_id')
-    action = data.get('action') # 'accept' or 'reject'
-    
-    try:
-        order_ref = db.collection('transactions').document(order_id)
-        order = order_ref.get()
-        
-        if not order.exists: return jsonify({'success': False, 'message': 'Order not found'}), 404
-        
-        order_data = order.to_dict()
-        
-        # Verify this user is the actual seller
-        if order_data['seller_uid'] != session['uid']:
-            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
-
-        if action == 'accept':
-            # 1. Update Order Status
-            order_ref.update({'status': 'completed'})
-            
-            # 2. Mark Product as SOLD so it disappears from the marketplace
-            db.collection('products').document(order_data['item_id']).update({'status': 'sold'})
-            
-            message = "Order Accepted! Item marked as Sold."
-            
-        elif action == 'reject':
-            order_ref.update({'status': 'rejected'})
-            message = "Order Rejected."
-
-        return jsonify({'success': True, 'message': message})
-
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
 if __name__ == '__main__':
     app.run(debug=True)
