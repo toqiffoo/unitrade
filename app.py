@@ -12,6 +12,10 @@ app.config['SECRET_KEY'] = 'YOUR_VERY_STRONG_SECRET_KEY_FOR_SESSIONS'
 KEY_FILE_NAME = 'key.json' 
 STORAGE_BUCKET = "unitrade-839f0.firebasestorage.app" 
 
+# --- ADMIN CONFIGURATION ---
+# REPLACE THIS with your actual email to give yourself access!
+ADMIN_EMAILS = ["test@unitrade.com"]
+
 # Initialize variables
 db = None
 bucket = None
@@ -69,13 +73,16 @@ def register():
 def dashboard():
     global db
     user_email = session.get('user_email', 'User')
-    search_query = request.args.get('q', '').lower()
+    
+    # 1. Check if the current user is an Admin
+    is_admin = user_email in ADMIN_EMAILS 
 
+    search_query = request.args.get('q', '').lower()
     products = []
-    services = [] # New list for services
+    services = []
 
     try:
-        # 1. Fetch Products
+        # Fetch Products
         products_ref = db.collection('products').order_by('created_at', direction=firestore.Query.DESCENDING).stream()
         for doc in products_ref:
             p = doc.to_dict()
@@ -86,13 +93,11 @@ def dashboard():
             else:
                 products.append(p)
 
-        # 2. Fetch Services (Only fetch if "available" is True OR if we want to show all)
-        # For now, let's fetch all and filter in Python or Jinja
+        # Fetch Services
         services_ref = db.collection('services').order_by('created_at', direction=firestore.Query.DESCENDING).stream()
         for doc in services_ref:
             s = doc.to_dict()
             s['id'] = doc.id
-            # Search Logic for Services
             if search_query:
                 if search_query in s.get('service_type', '').lower() or search_query in s.get('description', '').lower():
                     services.append(s)
@@ -102,7 +107,8 @@ def dashboard():
     except Exception as e:
         print(f"Error fetching data: {e}")
 
-    return render_template('dashboard.html', user_email=user_email, products=products, services=services)
+    # 2. Pass 'is_admin' to the template
+    return render_template('dashboard.html', user_email=user_email, products=products, services=services, is_admin=is_admin)
 
 @app.route('/inbox')
 @login_required
@@ -358,6 +364,100 @@ def api_update_profile():
             'phone_number': data.get('phone_number')
         })
         return jsonify({'success': True, 'message': 'Profile updated.'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+    
+    # --- ADMIN & REPORTING ROUTES ---
+
+@app.route('/admin')
+@login_required
+def admin_dashboard():
+    user_email = session.get('user_email')
+    
+    # Security Check: Is this user an Admin?
+    if user_email not in ADMIN_EMAILS:
+        return "Access Denied: You are not an administrator.", 403
+
+    # Fetch all reports
+    reports = []
+    try:
+        reports_ref = db.collection('reports').order_by('timestamp', direction=firestore.Query.DESCENDING).stream()
+        for doc in reports_ref:
+            r = doc.to_dict()
+            r['id'] = doc.id
+            reports.append(r)
+    except Exception as e:
+        print(f"Admin Error: {e}")
+
+    return render_template('admin.html', reports=reports)
+
+@app.route('/api/report', methods=['POST'])
+@login_required
+def api_report():
+    data = request.get_json()
+    item_id = data.get('item_id')
+    item_type = data.get('item_type') # 'product' or 'service'
+    reason = data.get('reason')
+    
+    try:
+        # Get details of the item being reported
+        item_ref = db.collection('products' if item_type == 'product' else 'services').document(item_id)
+        item = item_ref.get()
+        
+        if not item.exists:
+            return jsonify({'success': False, 'message': 'Item not found.'}), 404
+            
+        item_data = item.to_dict()
+        
+        # Save Report to Database
+        db.collection('reports').add({
+            'reporter_uid': session['uid'],
+            'reporter_email': session['user_email'],
+            'item_id': item_id,
+            'item_type': item_type,
+            'item_name': item_data.get('name') if item_type == 'product' else item_data.get('service_type'),
+            'item_image': item_data.get('image_url'),
+            'reason': reason,
+            'status': 'pending', # pending, resolved
+            'timestamp': firestore.SERVER_TIMESTAMP
+        })
+        
+        return jsonify({'success': True, 'message': 'Report submitted to Admin.'})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/admin_action', methods=['POST'])
+@login_required
+def api_admin_action():
+    # Double security check
+    if session.get('user_email') not in ADMIN_EMAILS:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+        
+    data = request.get_json()
+    report_id = data.get('report_id')
+    action = data.get('action') # 'delete_item' or 'dismiss'
+    
+    try:
+        report_ref = db.collection('reports').document(report_id)
+        report = report_ref.get().to_dict()
+        
+        if action == 'delete_item':
+            # 1. Delete the actual item from database
+            collection = 'products' if report['item_type'] == 'product' else 'services'
+            db.collection(collection).document(report['item_id']).delete()
+            
+            # 2. Mark report as resolved
+            report_ref.update({'status': 'resolved_banned'})
+            message = "Item deleted and user flagged."
+            
+        elif action == 'dismiss':
+            # Just close the report
+            report_ref.update({'status': 'dismissed'})
+            message = "Report dismissed."
+            
+        return jsonify({'success': True, 'message': message})
+        
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
