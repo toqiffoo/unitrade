@@ -3,11 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>UniTrade | Marketplace</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <title>UniTrade | Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <style>
+      /* Status Badge for Services */
+      .badge-avail { background-color: #28a745; color: white; padding: 5px 10px; border-radius: 12px; font-size: 0.8rem; }
+      .badge-unavail { background-color: #dc3545; color: white; padding: 5px 10px; border-radius: 12px; font-size: 0.8rem; }
+  </style>
 </head>
-
 <body>
   
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
@@ -16,84 +20,117 @@
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
             <span class="navbar-toggler-icon"></span>
         </button>
-
         <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav ms-auto">
-                <li class="nav-item">
-                    <span class="nav-link">Welcome, **{{ user_email|default('User') }}**</span>
-                </li>
-                
+                <li class="nav-item"><span class="nav-link">Welcome, {{ user_email|default('User') }}</span></li>
                 <li class="nav-item"><a class="nav-link active" href="{{ url_for('dashboard') }}">Home</a></li>
-                
                 <li class="nav-item"><a class="nav-link" href="{{ url_for('inbox') }}">Messages</a></li>
-
-                <li class="nav-item"><a class="nav-link" href="{{ url_for('sell') }}">Sell</a></li> 
-                <li class="nav-item"><a class="nav-link" href="{{ url_for('profile') }}">Profile</a></li> 
-                <li class="nav-item"><a class="nav-link" href="{{ url_for('settings') }}">Settings</a></li> 
-                
-                <li class="nav-item">
-                    <a class="btn btn-danger btn-sm ms-2" href="{{ url_for('logout') }}">Logout</a>
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">Create</a>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="{{ url_for('sell') }}">Sell Item</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('offer_service') }}">Offer Service</a></li>
+                    </ul>
                 </li>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('profile') }}">Profile</a></li> 
+                <li class="nav-item"><a class="btn btn-danger btn-sm ms-2" href="{{ url_for('logout') }}">Logout</a></li>
             </ul>
         </div>
     </div>
 </nav>
 
----
-
 <div class="container my-4">
-    <div class="row">
+    <div class="row mb-4">
         <div class="col-md-8 mx-auto">
             <form class="d-flex" role="search" method="GET" action="{{ url_for('dashboard') }}">
-                <input class="form-control me-2" type="search" name="q" placeholder="Search items..." aria-label="Search" value="{{ request.args.get('q', '') }}">
+                <input class="form-control me-2" type="search" name="q" placeholder="Search items or services..." value="{{ request.args.get('q', '') }}">
                 <button class="btn btn-outline-primary" type="submit">Search</button>
             </form>
         </div>
     </div>
-</div>
 
----
+    <ul class="nav nav-tabs mb-4" id="myTab" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="products-tab" data-bs-toggle="tab" data-bs-target="#products-pane" type="button">🛍️ Products</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="services-tab" data-bs-toggle="tab" data-bs-target="#services-pane" type="button">💇‍♂️ Services</button>
+        </li>
+    </ul>
 
-<div class="container">
-    <div class="row" id="product-list">
-
-        {% if products %}
-            {% for product in products %}
-            <div class="col-md-4 mb-4">
-                <div class="card shadow-sm h-100">
-                    <img src="{{ product.image_url }}" class="card-img-top" alt="{{ product.name }}" style="height: 200px; object-fit: cover;">
-                    <div class="card-body d-flex flex-column">
-                        <h5 class="card-title">{{ product.name }}</h5>
-                        
-                        <p class="text-muted small mb-2">
-                            Seller: <strong>{{ product.seller_name | default(product.seller_email) }}</strong>
-                        </p>
-
-                        <p class="card-text">{{ product.description | truncate(60) }}</p>
-                        <p class="card-text fw-bold text-success mt-auto">RM {{ "%.2f"|format(product.price) }}</p>
-                        
-                        <a href="{{ url_for('chat', seller_uid=product.seller_uid) }}" class="btn btn-primary w-100 mt-2">
-                            Chat Seller
-                        </a>
+    <div class="tab-content" id="myTabContent">
+        
+        <div class="tab-pane fade show active" id="products-pane">
+            <div class="row">
+                {% if products %}
+                    {% for product in products %}
+                    <div class="col-md-4 mb-4">
+                        <div class="card shadow-sm h-100">
+                            <img src="{{ product.image_url }}" class="card-img-top" style="height: 200px; object-fit: cover;">
+                            <div class="card-body d-flex flex-column">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <h5 class="card-title">{{ product.name }}</h5>
+                                    <div class="dropdown">
+                                        <button class="btn btn-link text-muted p-0" data-bs-toggle="dropdown">⋮</button>
+                                        <ul class="dropdown-menu dropdown-menu-end">
+                                            <li><a class="dropdown-item text-danger" href="#">🚩 Report Listing</a></li>
+                                        </ul>
+                                    </div>
+                                </div>
+                                <p class="text-muted small mb-2">Seller: {{ product.seller_name }}</p>
+                                <p class="card-text">{{ product.description | truncate(60) }}</p>
+                                <p class="card-text fw-bold text-success mt-auto">RM {{ "%.2f"|format(product.price) }}</p>
+                                <a href="{{ url_for('chat', seller_uid=product.seller_uid) }}" class="btn btn-primary w-100 mt-2">Chat Seller</a>
+                            </div>
+                        </div>
                     </div>
-                </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="col-12 text-center text-muted">No products found.</div>
+                {% endif %}
             </div>
-            {% endfor %}
-        {% else %}
-            <div class="col-12 text-center mt-5">
-                <p class="text-muted">No items found matching your search.</p>
-                <a href="{{ url_for('dashboard') }}" class="btn btn-secondary btn-sm">Clear Search</a>
-            </div>
-        {% endif %}
+        </div>
 
+        <div class="tab-pane fade" id="services-pane">
+            <div class="row">
+                {% if services %}
+                    {% for service in services %}
+                    <div class="col-md-4 mb-4">
+                        <div class="card shadow-sm h-100 border-0 bg-light">
+                            <img src="{{ service.image_url }}" class="card-img-top rounded-top" style="height: 180px; object-fit: cover;">
+                            <div class="card-body d-flex flex-column">
+                                <div class="d-flex justify-content-between">
+                                    <span class="badge bg-info text-dark">{{ service.service_type }}</span>
+                                    {% if service.is_available %}
+                                        <span class="badge-avail">Available</span>
+                                    {% else %}
+                                        <span class="badge-unavail">Busy</span>
+                                    {% endif %}
+                                </div>
+                                <h5 class="card-title mt-2">{{ service.provider_name }}</h5>
+                                <p class="card-text small text-muted">{{ service.description }}</p>
+                                <p class="fw-bold mt-auto">Starts at RM {{ "%.2f"|format(service.price) }}</p>
+                                
+                                <div class="d-flex gap-2">
+                                    <a href="{{ url_for('chat', seller_uid=service.provider_uid) }}" class="btn btn-primary flex-grow-1">Book Now</a>
+                                    <div class="dropdown">
+                                        <button class="btn btn-outline-secondary" data-bs-toggle="dropdown">⋮</button>
+                                        <ul class="dropdown-menu dropdown-menu-end">
+                                            <li><a class="dropdown-item text-danger" href="#">🚩 Report Service</a></li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="col-12 text-center text-muted">No services found.</div>
+                {% endif %}
+            </div>
+        </div>
     </div>
 </div>
-
----
-
-<footer class="text-center py-3 mt-4 bg-light border-top">
-    <p class="mb-0 text-muted">© 2025 UniTrade Student Marketplace</p>
-</footer>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>

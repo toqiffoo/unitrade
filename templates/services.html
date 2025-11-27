@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UniTrade | Offer Service</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}">UniTrade</a>
+            <div class="collapse navbar-collapse justify-content-end">
+                <ul class="navbar-nav">
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}">Home</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="{{ url_for('offer_service') }}">Offer Service</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('profile') }}">Profile</a></li> 
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container my-5">
+        <div class="row">
+            <div class="col-md-8 mx-auto">
+                <div class="card shadow-lg p-4">
+                    <h3 class="text-primary mb-4">Offer a Service</h3>
+                    
+                    <div id="message" class="alert d-none" role="alert"></div>
+
+                    <form id="service-form" method="POST" enctype="multipart/form-data">
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Service Type</label>
+                            <select class="form-select" id="service-type" required>
+                                <option value="" selected disabled>Select a service...</option>
+                                <option value="Barber">Barber / Haircut</option>
+                                <option value="Runner">Runner / Delivery</option>
+                                <option value="Printing">Printing Service</option>
+                                <option value="Graphic Design">Graphic Design</option>
+                                <option value="Tutoring">Tutoring</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Description (Experience, Availability, etc.)</label>
+                            <textarea class="form-control" id="description" rows="3" required></textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Starting Price (RM)</label>
+                            <input type="number" class="form-control" id="price" step="0.01" required>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label">Example Image (Portfolio/Icon)</label>
+                            <input type="file" class="form-control" id="image" accept="image/*" required>
+                        </div>
+
+                        <button type="submit" class="btn btn-success w-100" id="list-btn">Publish Service</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-storage.js"></script>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyDtTsByQ3oaYkSTJw9s9BVpdLoJ5yQ5rDE",
+            authDomain: "unitrade-839f0.firebaseapp.com",
+            projectId: "unitrade-839f0",
+            storageBucket: "unitrade-839f0.firebasestorage.app", 
+            messagingSenderId: "684492149556",
+            appId: "1:684492149556:web:8049eedd828f4b99b60b61",
+            measurementId: "G-FESZB67P9B"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const storage = firebase.storage();
+        const auth = firebase.auth();
+
+        const form = document.getElementById('service-form');
+        const messageDiv = document.getElementById('message');
+        const listBtn = document.getElementById('list-btn');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const serviceType = document.getElementById('service-type').value;
+            const description = document.getElementById('description').value;
+            const price = document.getElementById('price').value;
+            const imageFile = document.getElementById('image').files[0];
+
+            if (!imageFile) return alert("Image required");
+
+            listBtn.disabled = true;
+            listBtn.textContent = 'Uploading...';
+
+            try {
+                const user = firebase.auth().currentUser;
+                if (!user) return alert("Please login.");
+
+                const filePath = `services/${user.uid}/${Date.now()}_${imageFile.name}`;
+                const storageRef = storage.ref(filePath);
+                const snapshot = await storageRef.put(imageFile);
+                const imageUrl = await snapshot.ref.getDownloadURL();
+
+                const response = await fetch('/api/offer_service', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        service_type: serviceType,
+                        description, price, image_url: imageUrl, 
+                        idToken: await user.getIdToken() 
+                    }),
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    window.location.href = data.redirect_url;
+                } else {
+                    alert(data.message);
+                }
+            } catch (error) {
+                console.error(error);
+                alert("Error listing service.");
+            } finally {
+                listBtn.disabled = false;
+                listBtn.textContent = 'Publish Service';
+            }
+        });
+    </script>
+</body>
+</html>
