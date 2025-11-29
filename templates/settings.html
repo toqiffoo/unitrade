@@ -37,6 +37,15 @@
                             <input type="text" class="form-control" id="full-name" value="{{ user.full_name|default('') }}">
                         </div>
                         <div class="mb-3">
+                            <label class="form-label">Faculty</label>
+                            <select class="form-select" id="faculty">
+                                <option value="" disabled>Select Faculty...</option>
+                                {% for fac in faculties %}
+                                    <option value="{{ fac }}" {% if user.faculty == fac %}selected{% endif %}>{{ fac }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-3">
                             <label class="form-label">Phone Number</label>
                             <input type="text" class="form-control" id="phone-number" value="{{ user.phone_number|default('') }}">
                         </div>
@@ -90,12 +99,14 @@
             e.preventDefault();
             const fullName = document.getElementById('full-name').value;
             const phoneNumber = document.getElementById('phone-number').value;
+            const faculty = document.getElementById('faculty').value; // <--- NEW LINE
 
             try {
                 const response = await fetch('/api/update_profile', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ full_name: fullName, phone_number: phoneNumber })
+                    // ADDED faculty to the list below 👇
+                    body: JSON.stringify({ full_name: fullName, phone_number: phoneNumber, faculty: faculty })
                 });
                 const data = await response.json();
                 showMessage(data.message, !data.success);

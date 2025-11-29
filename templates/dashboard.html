@@ -53,7 +53,7 @@
         </div>
     </div>
 
-   <ul class="nav nav-tabs mb-4" id="myTab" role="tablist">
+    <ul class="nav nav-tabs mb-4" id="myTab" role="tablist">
         <li class="nav-item" role="presentation">
             <button class="nav-link active" id="products-tab" data-bs-toggle="tab" data-bs-target="#products-pane" type="button">🛍️ Products</button>
         </li>
@@ -64,6 +64,11 @@
             <button class="nav-link fw-bold text-primary" id="orders-tab" data-bs-toggle="tab" data-bs-target="#orders-pane" type="button">
                 📦 Incoming Orders 
                 {% if orders %}<span class="badge bg-danger ms-1">{{ orders|length }}</span>{% endif %}
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link text-success fw-bold" id="purchases-tab" data-bs-toggle="tab" data-bs-target="#purchases-pane" type="button">
+                🛒 My Purchases
             </button>
         </li>
     </ul>
@@ -87,7 +92,10 @@
                                         </ul>
                                     </div>
                                 </div>
-                                <p class="text-muted small mb-2">Seller: {{ product.seller_name }}</p>
+                                <p class="text-muted small mb-2">
+                                    Seller: <a href="{{ url_for('profile', target_uid=product.seller_uid) }}">{{ product.seller_name }}</a>
+                                </p>
+
                                 <p class="card-text">{{ product.description | truncate(60) }}</p>
                                 <p class="card-text fw-bold text-success mt-auto">RM {{ "%.2f"|format(product.price) }}</p>
                                 
@@ -157,7 +165,7 @@
                                     <p class="mb-1 text-muted small">Buyer: {{ order.buyer_email }}</p>
                                     <span class="badge bg-secondary">{{ order.payment_method }}</span>
                                     {% if order.proof_image %}
-                                        <a href="{{ order.proof_image }}" target="_blank" class="badge bg-primary text-decoration-none">View Receipt</a>
+                                        <a href="{{ order.proof_image }}" target="_blank" class="badge bg-primary text-decoration-none ms-2">View Receipt</a>
                                     {% endif %}
                                 </div>
                                 <div class="d-flex gap-2">
@@ -174,16 +182,49 @@
             </div>
         </div>
 
+        <div class="tab-pane fade" id="purchases-pane">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title">My Purchase History</h5>
+                    {% for p in purchases %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6>{{ p.item_name }}</h6>
+                            <span class="badge {{ 'bg-success' if p.status == 'completed' else 'bg-warning' }}">{{ p.status }}</span>
+                        </div>
+                        {% if p.status == 'completed' %}
+                            <button class="btn btn-outline-warning btn-sm" onclick="openReviewModal('{{ p.seller_uid }}')">Rate Seller</button>
+                        {% endif %}
+                    </div>
+                    {% else %}
+                        <p class="text-muted text-center">No purchases made.</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
     </div>
 </div>
 
 <script>
-    // ... (Keep submitReport and openBuyModal logic) ...
+    // --- REPORT LOGIC ---
+    async function submitReport(itemId, itemType) {
+        const reason = prompt("Why are you reporting this item? (e.g., Scam, Inappropriate, Fake)");
+        if (!reason) return;
+        try {
+            const response = await fetch('/api/report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ item_id: itemId, item_type: itemType, reason: reason })
+            });
+            const data = await response.json();
+            alert(data.message);
+        } catch (error) { console.error(error); alert("Failed to report."); }
+    }
 
-    // NEW: Handle Order Script
+    // --- HANDLE ORDERS (Seller) ---
     async function handleOrder(orderId, action) {
         if(!confirm(`Are you sure you want to ${action} this order?`)) return;
-
         try {
             const response = await fetch('/api/handle_order', {
                 method: 'POST',
@@ -193,10 +234,7 @@
             const data = await response.json();
             alert(data.message);
             location.reload();
-        } catch (error) {
-            console.error(error);
-            alert("Error processing order.");
-        }
+        } catch (error) { console.error(error); alert("Error processing order."); }
     }
 </script>
 
@@ -239,12 +277,32 @@
   </div>
 </div>
 
+<div class="modal fade" id="reviewModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5>Rate Seller</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="review-target-uid">
+        <select id="review-rating" class="form-select mb-2">
+            <option value="5">⭐⭐⭐⭐⭐ (5)</option>
+            <option value="4">⭐⭐⭐⭐ (4)</option>
+            <option value="3">⭐⭐⭐ (3)</option>
+            <option value="2">⭐⭐ (2)</option>
+            <option value="1">⭐ (1)</option>
+        </select>
+        <textarea id="review-comment" class="form-control" placeholder="Write a review..."></textarea>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary" onclick="submitReview()">Submit</button></div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-storage.js"></script>
 
 <script>
-    // --- FIREBASE INIT (For Storage Upload) ---
+    // --- FIREBASE INIT ---
     const firebaseConfig = {
         apiKey: "AIzaSyDtTsByQ3oaYkSTJw9s9BVpdLoJ5yQ5rDE",
         authDomain: "unitrade-839f0.firebaseapp.com",
@@ -257,34 +315,17 @@
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     const storage = firebase.storage();
 
-    // --- REPORT LOGIC ---
-    async function submitReport(itemId, itemType) {
-        const reason = prompt("Why are you reporting this item? (e.g., Scam, Inappropriate, Fake)");
-        if (!reason) return;
-        try {
-            const response = await fetch('/api/report', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ item_id: itemId, item_type: itemType, reason: reason })
-            });
-            const data = await response.json();
-            alert(data.message);
-        } catch (error) { console.error(error); alert("Failed to report."); }
-    }
-
-    // --- BUY MODAL LOGIC ---
+    // --- BUY REQUEST LOGIC ---
     function openBuyModal(id, name, sellerUid) {
         document.getElementById('modal-item-id').value = id;
         document.getElementById('modal-item-name').innerText = name;
         document.getElementById('modal-seller-uid').value = sellerUid;
-        const modal = new bootstrap.Modal(document.getElementById('buyModal'));
-        modal.show();
+        new bootstrap.Modal(document.getElementById('buyModal')).show();
     }
 
     function toggleProof(show) {
         const proofDiv = document.getElementById('proof-section');
-        if (show) proofDiv.classList.remove('d-none');
-        else proofDiv.classList.add('d-none');
+        if (show) proofDiv.classList.remove('d-none'); else proofDiv.classList.add('d-none');
     }
 
     async function submitBuyRequest() {
@@ -302,35 +343,38 @@
 
         let proofUrl = null;
         try {
-            // 1. Upload Proof if exists
             if (proofFile) {
                 const ref = storage.ref(`receipts/${Date.now()}_${proofFile.name}`);
                 await ref.put(proofFile);
                 proofUrl = await ref.getDownloadURL();
             }
-
-            // 2. Send API Request
             const response = await fetch('/api/buy_request', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    item_id: itemId,
-                    item_name: itemName,
-                    seller_uid: sellerUid,
-                    payment_method: method,
-                    proof_image: proofUrl
-                })
+                body: JSON.stringify({ item_id: itemId, item_name: itemName, seller_uid: sellerUid, payment_method: method, proof_image: proofUrl })
             });
-
             const data = await response.json();
             alert(data.message);
-            location.reload(); // Close modal and refresh
+            location.reload();
+        } catch (error) { console.error(error); alert("Error sending request."); btn.disabled = false; }
+    }
 
-        } catch (error) {
-            console.error(error);
-            alert("Error sending request.");
-            btn.disabled = false;
-        }
+    // --- REVIEW LOGIC ---
+    function openReviewModal(uid) {
+        document.getElementById('review-target-uid').value = uid;
+        new bootstrap.Modal(document.getElementById('reviewModal')).show();
+    }
+    async function submitReview() {
+        const uid = document.getElementById('review-target-uid').value;
+        const rating = document.getElementById('review-rating').value;
+        const comment = document.getElementById('review-comment').value;
+        
+        await fetch('/api/add_review', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ target_uid: uid, rating, comment })
+        });
+        alert("Review Sent!");
+        location.reload();
     }
 </script>
 </body>
