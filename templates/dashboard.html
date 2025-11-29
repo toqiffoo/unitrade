@@ -27,8 +27,12 @@
                 <li class="nav-item dropdown">
                     <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">Create</a>
                     <ul class="dropdown-menu">
-                        <li><a class="dropdown-item" href="{{ url_for('sell') }}">Sell Item</a></li>
-                        <li><a class="dropdown-item" href="{{ url_for('offer_service') }}">Offer Service</a></li>
+                        {% if seller_status == 'approved' %}
+                            <li><a class="dropdown-item" href="{{ url_for('sell') }}">Sell Item</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('offer_service') }}">Offer Service</a></li>
+                        {% else %}
+                            <li><a class="dropdown-item text-primary" href="{{ url_for('apply_seller') }}">👮‍♂️ Apply to Sell</a></li>
+                        {% endif %}
                     </ul>
                 </li>
                 <li class="nav-item"><a class="nav-link" href="{{ url_for('profile') }}">Profile</a></li> 
@@ -42,6 +46,16 @@
         </div>
     </div>
 </nav>
+
+{% if seller_status == 'pending' %}
+<div class="alert alert-warning text-center m-0 rounded-0">
+    ⏳ Your Seller Application is <strong>Pending Approval</strong>. You cannot list items yet. (Wait ~24h)
+</div>
+{% elif seller_status == 'none' %}
+<div class="alert alert-info text-center m-0 rounded-0">
+    📢 Want to sell items? <a href="{{ url_for('apply_seller') }}" class="fw-bold">Verify your identity here</a>.
+</div>
+{% endif %}
 
 <div class="container my-4">
     <div class="row mb-4">

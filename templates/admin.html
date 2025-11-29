@@ -15,79 +15,83 @@
 </nav>
 
 <div class="container mt-5">
-    <h2 class="mb-4">🚩 Reported Items</h2>
     
-    <div class="card shadow-sm">
-        <div class="card-body p-0">
-            <table class="table table-hover mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>Item</th>
-                        <th>Type</th>
-                        <th>Reason</th>
-                        <th>Reporter</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for r in reports %}
-                    <tr id="row-{{ r.id }}" class="{{ 'table-secondary text-muted' if r.status != 'pending' else '' }}">
-                        <td>
-                            <div class="d-flex align-items-center">
-                                <img src="{{ r.item_image }}" width="40" height="40" class="rounded me-2" style="object-fit:cover;">
-                                <strong>{{ r.item_name }}</strong>
-                            </div>
-                        </td>
-                        <td><span class="badge bg-secondary">{{ r.item_type }}</span></td>
-                        <td class="text-danger">{{ r.reason }}</td>
-                        <td>{{ r.reporter_email }}</td>
-                        <td>
-                            {% if r.status == 'pending' %}
-                                <span class="badge bg-warning text-dark">Pending</span>
-                            {% else %}
-                                <span class="badge bg-success">Resolved</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if r.status == 'pending' %}
-                            <button onclick="adminAction('{{ r.id }}', 'delete_item')" class="btn btn-danger btn-sm">Delete Item</button>
-                            <button onclick="adminAction('{{ r.id }}', 'dismiss')" class="btn btn-secondary btn-sm">Dismiss</button>
-                            {% else %}
-                                <small>No actions needed</small>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="6" class="text-center py-4 text-muted">No active reports. Good job!</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+    <ul class="nav nav-tabs mb-4">
+        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#reports-pane">🚩 Reports</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#apps-pane">👮‍♂️ Seller Applications</button></li>
+    </ul>
+
+    <div class="tab-content">
+        <div class="tab-pane fade show active" id="reports-pane">
+            <div class="card shadow-sm">
+                <div class="card-body p-0">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr><th>Item</th><th>Type</th><th>Reason</th><th>Reporter</th><th>Status</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for r in reports %}
+                            <tr class="{{ 'table-secondary' if r.status != 'pending' else '' }}">
+                                <td>{{ r.item_name }}</td>
+                                <td>{{ r.item_type }}</td>
+                                <td class="text-danger">{{ r.reason }}</td>
+                                <td>{{ r.reporter_email }}</td>
+                                <td>{{ r.status }}</td>
+                                <td>
+                                    {% if r.status == 'pending' %}
+                                    <button onclick="adminAction('{{ r.id }}', 'delete_item')" class="btn btn-danger btn-sm">Delete</button>
+                                    <button onclick="adminAction('{{ r.id }}', 'dismiss')" class="btn btn-secondary btn-sm">Dismiss</button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}<tr><td colspan="6" class="text-center p-3">No reports.</td></tr>{% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-pane fade" id="apps-pane">
+            <div class="card shadow-sm">
+                <div class="card-body p-0">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr><th>Name</th><th>Email</th><th>NRIC</th><th>Matric</th><th>Proof</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for a in applications %}
+                            <tr>
+                                <td>{{ a.real_name }}</td>
+                                <td>{{ a.email }}</td>
+                                <td>{{ a.nric }}</td>
+                                <td>{{ a.matric }}</td>
+                                <td><a href="{{ a.id_card_url }}" target="_blank" class="btn btn-sm btn-info text-white">View ID</a></td>
+                                <td>
+                                    <button onclick="adminAction('{{ a.id }}', 'approve_seller')" class="btn btn-success btn-sm">Approve</button>
+                                    <button onclick="adminAction('{{ a.id }}', 'reject_seller')" class="btn btn-danger btn-sm">Reject</button>
+                                </td>
+                            </tr>
+                            {% else %}<tr><td colspan="6" class="text-center p-3">No pending applications.</td></tr>{% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
     async function adminAction(reportId, actionType) {
-        if(!confirm("Are you sure you want to perform this action?")) return;
-
+        if(!confirm("Perform this action?")) return;
         const response = await fetch('/api/admin_action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ report_id: reportId, action: actionType })
         });
-
         const data = await response.json();
-        if(data.success) {
-            alert(data.message);
-            location.reload(); // Reload to update table
-        } else {
-            alert("Error: " + data.message);
-        }
+        alert(data.message);
+        location.reload();
     }
 </script>
-
 </body>
 </html>

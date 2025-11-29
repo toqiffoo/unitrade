@@ -26,7 +26,6 @@ KEY_FILE_NAME = 'key.json'
 STORAGE_BUCKET = "unitrade-839f0.firebasestorage.app" 
 ADMIN_EMAILS = ["test@unitrade.com"]
 
-# --- DATA: FACULTIES LIST ---
 FACULTIES = [
     "Faculty of Quranic and Sunnah Studies (FPQS)",
     "Faculty of Leadership and Management (FKP)",
@@ -66,6 +65,21 @@ def login_required(f):
     wrap.__name__ = f.__name__
     return wrap
 
+# NEW: Decorator to check if user is an approved seller
+def seller_required(f):
+    def wrap(*args, **kwargs):
+        if 'logged_in' not in session: return redirect(url_for('login'))
+        # Check status in DB
+        user_doc = db.collection('users').document(session['uid']).get()
+        if user_doc.exists:
+            status = user_doc.to_dict().get('seller_status', 'none')
+            if status != 'approved':
+                # If not approved, redirect to dashboard (where they will see the status banner)
+                return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    wrap.__name__ = f.__name__
+    return wrap
+
 def get_chat_room_id(uid1, uid2): return '_'.join(sorted([uid1, uid2]))
 
 # --- ROUTES ---
@@ -90,13 +104,21 @@ def dashboard():
     is_admin = user_email in ADMIN_EMAILS 
     search_query = request.args.get('q', '').lower()
     
+    # Check Seller Status
+    user_doc = db.collection('users').document(current_uid).get()
+    
+    # SAFETY CHECK: If user doc exists, get status. If not, default to 'none'
+    if user_doc.exists:
+        seller_status = user_doc.to_dict().get('seller_status', 'none')
+    else:
+        seller_status = 'none'
+
     products = []
     services = []
     orders = [] 
-    purchases = [] # NEW: Items I am buying
+    purchases = []
 
     try:
-        # 1. Fetch Products
         products_ref = db.collection('products').order_by('created_at', direction=firestore.Query.DESCENDING).stream()
         for doc in products_ref:
             p = doc.to_dict()
@@ -105,7 +127,6 @@ def dashboard():
                 if not search_query or (search_query in p.get('name', '').lower() or search_query in p.get('description', '').lower()):
                     products.append(p)
 
-        # 2. Fetch Services
         services_ref = db.collection('services').order_by('created_at', direction=firestore.Query.DESCENDING).stream()
         for doc in services_ref:
             s = doc.to_dict()
@@ -113,14 +134,12 @@ def dashboard():
             if not search_query or (search_query in s.get('service_type', '').lower() or search_query in s.get('description', '').lower()):
                 services.append(s)
 
-        # 3. Incoming Orders (For Seller)
         orders_ref = db.collection('transactions').where('seller_uid', '==', current_uid).stream()
         for doc in orders_ref:
             o = doc.to_dict()
             o['id'] = doc.id
             orders.append(o)
 
-        # 4. My Purchases (For Buyer)
         purchases_ref = db.collection('transactions').where('buyer_uid', '==', current_uid).stream()
         for doc in purchases_ref:
             p = doc.to_dict()
@@ -131,7 +150,8 @@ def dashboard():
 
     return render_template('dashboard.html', 
                            user_email=user_email, products=products, services=services, 
-                           orders=orders, purchases=purchases, is_admin=is_admin)
+                           orders=orders, purchases=purchases, is_admin=is_admin,
+                           seller_status=seller_status)
 
 @app.route('/inbox')
 @login_required
@@ -155,61 +175,53 @@ def inbox():
     except Exception as e: print(f"Error: {e}")
     return render_template('inbox.html', chats=chat_list)
 
+# NEW: Apply Route
+@app.route('/apply_seller', methods=['GET'])
+@login_required
+def apply_seller():
+    return render_template('apply_seller.html')
+
+# UPDATED: Protected Sell Route
 @app.route('/sell', methods=['GET'])
 @login_required 
+@seller_required # <--- Protected
 def sell(): return render_template('sell.html')
 
+# UPDATED: Protected Service Route
 @app.route('/offer_service', methods=['GET'])
 @login_required 
+@seller_required # <--- Protected
 def offer_service(): return render_template('services.html')
 
-# UPDATED PROFILE ROUTE: Supports Public View
 @app.route('/profile')
 @app.route('/profile/<target_uid>')
 @login_required 
 def profile(target_uid=None):
     global db
     current_uid = session.get('uid')
-    
-    # Determine whose profile we are viewing
     view_uid = target_uid if target_uid else current_uid
     is_own_profile = (view_uid == current_uid)
-
     user_products = []
     user_services = []
     user_info = {}
     reviews = []
-
     try:
-        # Get User Info
         user_doc = db.collection('users').document(view_uid).get()
         if user_doc.exists: user_info = user_doc.to_dict()
-
-        # Get Products (Show ALL if own profile, show only AVAILABLE/SOLD if public)
         products_ref = db.collection('products').where('seller_uid', '==', view_uid).stream()
         for doc in products_ref:
             p = doc.to_dict()
             p['id'] = doc.id
             user_products.append(p)
-
-        # Get Services
         services_ref = db.collection('services').where('provider_uid', '==', view_uid).stream()
         for doc in services_ref:
             s = doc.to_dict()
             s['id'] = doc.id
             user_services.append(s)
-
-        # Get Reviews
         reviews_ref = db.collection('users').document(view_uid).collection('reviews').stream()
-        for doc in reviews_ref:
-            reviews.append(doc.to_dict())
-
+        for doc in reviews_ref: reviews.append(doc.to_dict())
     except Exception as e: print(f"Error: {e}")
-
-    return render_template('profile.html', 
-                           products=user_products, services=user_services, 
-                           user=user_info, is_own_profile=is_own_profile,
-                           reviews=reviews, view_uid=view_uid)
+    return render_template('profile.html', products=user_products, services=user_services, user=user_info, is_own_profile=is_own_profile, reviews=reviews, view_uid=view_uid)
 
 @app.route('/settings')
 @login_required 
@@ -252,17 +264,51 @@ def logout():
 def admin_dashboard():
     if session.get('user_email') not in ADMIN_EMAILS: return "Access Denied", 403
     reports = []
+    applications = [] # NEW LIST
     try:
+        # Fetch Reports
         reports_ref = db.collection('reports').order_by('timestamp', direction=firestore.Query.DESCENDING).stream()
         for doc in reports_ref:
             r = doc.to_dict()
             r['id'] = doc.id
             reports.append(r)
+            
+        # Fetch Pending Applications
+        apps_ref = db.collection('seller_applications').where('status', '==', 'pending').stream()
+        for doc in apps_ref:
+            a = doc.to_dict()
+            a['id'] = doc.id
+            applications.append(a)
+            
     except Exception: pass
-    return render_template('admin.html', reports=reports)
+    return render_template('admin.html', reports=reports, applications=applications)
 
 # --- API ROUTES ---
 
+# NEW: Submit Verification
+@app.route('/api/submit_verification', methods=['POST'])
+@login_required
+def api_submit_verification():
+    data = request.get_json()
+    uid = session['uid']
+    try:
+        # Save sensitive data to a SEPARATE secure collection
+        db.collection('seller_applications').add({
+            'uid': uid,
+            'email': session['user_email'],
+            'real_name': data['real_name'],
+            'nric': data['nric'],
+            'matric': data['matric'],
+            'id_card_url': data['id_card_url'],
+            'status': 'pending',
+            'timestamp': firestore.SERVER_TIMESTAMP
+        })
+        # Update user status to pending
+        db.collection('users').document(uid).update({'seller_status': 'pending'})
+        return jsonify({'success': True, 'message': 'Application submitted. Wait for approval.'})
+    except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
+
+# MODIFIED: Signup sets seller_status to 'none'
 @app.route('/api/signup', methods=['POST'])
 def api_signup():
     data = request.get_json()
@@ -278,7 +324,8 @@ def api_signup():
             'email': data['email'],
             'full_name': data.get('fullName'),
             'phone_number': data.get('phoneNumber'), 
-            'faculty': data.get('faculty'), # NEW FIELD
+            'faculty': data.get('faculty'), 
+            'seller_status': 'none', # NEW DEFAULT
             'created_at': firestore.SERVER_TIMESTAMP
         }, merge=True)
         return jsonify({'success': True, 'message': 'Account created.'})
@@ -298,7 +345,9 @@ def api_login():
         mail.send(msg)
         print(f"DEBUG: Sent OTP {otp} to {email}")
         return jsonify({'success': True, 'mfa_required': True, 'message': 'OTP sent!'})
-    except Exception as e: return jsonify({'success': False, 'message': 'Login failed.'}), 401
+    except Exception as e:
+        print(f"Login Error: {e}")
+        return jsonify({'success': False, 'message': 'Login failed.'}), 401
 
 @app.route('/api/verify_mfa', methods=['POST'])
 def api_verify_mfa():
@@ -376,19 +425,38 @@ def api_report():
         return jsonify({'success': True, 'message': 'Report submitted.'})
     except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
 
+# MODIFIED: Handle Seller Approval
 @app.route('/api/admin_action', methods=['POST'])
 @login_required
 def api_admin_action():
     if session.get('user_email') not in ADMIN_EMAILS: return jsonify({'success': False}), 403
     data = request.get_json()
+    action = data.get('action')
+    
     try:
+        if action in ['approve_seller', 'reject_seller']:
+            app_id = data.get('report_id') # Reusing ID field
+            app_ref = db.collection('seller_applications').document(app_id)
+            app_doc = app_ref.get().to_dict()
+            user_uid = app_doc['uid']
+            
+            if action == 'approve_seller':
+                db.collection('users').document(user_uid).update({'seller_status': 'approved'})
+                app_ref.update({'status': 'approved'})
+                return jsonify({'success': True, 'message': 'Seller Approved.'})
+            else:
+                db.collection('users').document(user_uid).update({'seller_status': 'rejected'})
+                app_ref.update({'status': 'rejected'})
+                return jsonify({'success': True, 'message': 'Seller Rejected.'})
+
+        # Existing Report Logic...
         report_ref = db.collection('reports').document(data['report_id'])
         report = report_ref.get().to_dict()
-        if data['action'] == 'delete_item':
+        if action == 'delete_item':
             col = 'products' if report['item_type'] == 'product' else 'services'
             db.collection(col).document(report['item_id']).delete()
             report_ref.update({'status': 'resolved_banned'})
-        elif data['action'] == 'dismiss': report_ref.update({'status': 'dismissed'})
+        elif action == 'dismiss': report_ref.update({'status': 'dismissed'})
         return jsonify({'success': True, 'message': 'Action taken.'})
     except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
 
@@ -411,7 +479,7 @@ def api_update_profile():
         db.collection('users').document(session['uid']).update({
             'full_name': data['full_name'], 
             'phone_number': data['phone_number'],
-            'faculty': data['faculty'] # NEW
+            'faculty': data['faculty']
         })
         return jsonify({'success': True, 'message': 'Updated.'})
     except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
@@ -431,13 +499,11 @@ def api_handle_order():
         return jsonify({'success': True, 'message': 'Order ' + status})
     except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
 
-# NEW: Add Review API
 @app.route('/api/add_review', methods=['POST'])
 @login_required
 def api_add_review():
     data = request.get_json()
     try:
-        # Save review to the target user's profile
         db.collection('users').document(data['target_uid']).collection('reviews').add({
             'reviewer_email': session['user_email'],
             'rating': int(data['rating']),
