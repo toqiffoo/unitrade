@@ -26,18 +26,17 @@ KEY_FILE_NAME = 'key.json'
 STORAGE_BUCKET = "unitrade-839f0.firebasestorage.app" 
 ADMIN_EMAILS = ["test@unitrade.com"]
 
+# --- DATA LISTS ---
 FACULTIES = [
-    "Faculty of Quranic and Sunnah Studies (FPQS)",
-    "Faculty of Leadership and Management (FKP)",
-    "Faculty of Syariah and Law (FSU)",
-    "Faculty of Economics and Muamalat (FEM)",
-    "Faculty of Science and Technology (FST)",
-    "Faculty of Medicine and Health Sciences (FPSK)",
-    "Faculty of Major Language Studies (FPBU)",
-    "Faculty of Dentistry (FPg)",
-    "Faculty of Engineering and Built Environment (FKAB)",
-    "Tamhidi Centre",
-    "STAFF"
+    "Faculty of Quranic and Sunnah Studies (FPQS)", "Faculty of Leadership and Management (FKP)",
+    "Faculty of Syariah and Law (FSU)", "Faculty of Economics and Muamalat (FEM)",
+    "Faculty of Science and Technology (FST)", "Faculty of Medicine and Health Sciences (FPSK)",
+    "Faculty of Major Language Studies (FPBU)", "Faculty of Dentistry (FPg)",
+    "Faculty of Engineering and Built Environment (FKAB)", "Tamhidi Centre", "STAFF"
+]
+
+CATEGORIES = [
+    "Textbooks", "Electronics", "Clothing", "Food", "Furniture", "Stationery", "Others"
 ]
 
 db = None
@@ -60,21 +59,18 @@ else:
 
 def login_required(f):
     def wrap(*args, **kwargs):
-        if 'logged_in' not in session or not session['logged_in']: return redirect(url_for('login'))
+        if 'logged_in' not in session: return redirect(url_for('login'))
         return f(*args, **kwargs)
     wrap.__name__ = f.__name__
     return wrap
 
-# NEW: Decorator to check if user is an approved seller
 def seller_required(f):
     def wrap(*args, **kwargs):
         if 'logged_in' not in session: return redirect(url_for('login'))
-        # Check status in DB
         user_doc = db.collection('users').document(session['uid']).get()
         if user_doc.exists:
             status = user_doc.to_dict().get('seller_status', 'none')
             if status != 'approved':
-                # If not approved, redirect to dashboard (where they will see the status banner)
                 return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     wrap.__name__ = f.__name__
@@ -102,16 +98,14 @@ def dashboard():
     user_email = session.get('user_email', 'User')
     current_uid = session.get('uid')
     is_admin = user_email in ADMIN_EMAILS 
+    
+    # Filters
     search_query = request.args.get('q', '').lower()
+    category_filter = request.args.get('category', 'All')
     
     # Check Seller Status
     user_doc = db.collection('users').document(current_uid).get()
-    
-    # SAFETY CHECK: If user doc exists, get status. If not, default to 'none'
-    if user_doc.exists:
-        seller_status = user_doc.to_dict().get('seller_status', 'none')
-    else:
-        seller_status = 'none'
+    seller_status = user_doc.to_dict().get('seller_status', 'none') if user_doc.exists else 'none'
 
     products = []
     services = []
@@ -119,14 +113,21 @@ def dashboard():
     purchases = []
 
     try:
+        # 1. Fetch Products (With Category Filter)
         products_ref = db.collection('products').order_by('created_at', direction=firestore.Query.DESCENDING).stream()
         for doc in products_ref:
             p = doc.to_dict()
             p['id'] = doc.id
             if p.get('status') != 'sold': 
-                if not search_query or (search_query in p.get('name', '').lower() or search_query in p.get('description', '').lower()):
+                matches_search = not search_query or (search_query in p.get('name', '').lower() or search_query in p.get('description', '').lower())
+                matches_cat = category_filter == 'All' or p.get('category') == category_filter
+                if matches_search and matches_cat:
                     products.append(p)
+        
+        # Simple Pagination (Limit to 20)
+        products = products[:20] 
 
+        # 2. Fetch Services
         services_ref = db.collection('services').order_by('created_at', direction=firestore.Query.DESCENDING).stream()
         for doc in services_ref:
             s = doc.to_dict()
@@ -134,12 +135,14 @@ def dashboard():
             if not search_query or (search_query in s.get('service_type', '').lower() or search_query in s.get('description', '').lower()):
                 services.append(s)
 
+        # 3. Incoming Orders
         orders_ref = db.collection('transactions').where('seller_uid', '==', current_uid).stream()
         for doc in orders_ref:
             o = doc.to_dict()
             o['id'] = doc.id
             orders.append(o)
 
+        # 4. My Purchases
         purchases_ref = db.collection('transactions').where('buyer_uid', '==', current_uid).stream()
         for doc in purchases_ref:
             p = doc.to_dict()
@@ -151,53 +154,55 @@ def dashboard():
     return render_template('dashboard.html', 
                            user_email=user_email, products=products, services=services, 
                            orders=orders, purchases=purchases, is_admin=is_admin,
+                           categories=CATEGORIES, current_category=category_filter,
                            seller_status=seller_status)
+
+@app.route('/leaderboard')
+def leaderboard():
+    top_sellers = []
+    try:
+        users_ref = db.collection('users').order_by('sold_count', direction=firestore.Query.DESCENDING).limit(10).stream()
+        for doc in users_ref:
+            u = doc.to_dict()
+            if u.get('sold_count', 0) > 0:
+                top_sellers.append(u)
+    except Exception: pass
+    return render_template('leaderboard.html', top_sellers=top_sellers)
+
+@app.route('/apply_seller', methods=['GET'])
+@login_required
+def apply_seller():
+    return render_template('apply_seller.html')
+
+@app.route('/sell', methods=['GET'])
+@login_required 
+@seller_required 
+def sell(): return render_template('sell.html', categories=CATEGORIES)
+
+@app.route('/offer_service', methods=['GET'])
+@login_required 
+@seller_required 
+def offer_service(): return render_template('services.html')
 
 @app.route('/inbox')
 @login_required
 def inbox():
-    global db
     current_uid = session.get('uid')
     chat_list = []
     try:
         chats_ref = db.collection('chats').where('participants', 'array_contains', current_uid).stream()
         for doc in chats_ref:
             data = doc.to_dict()
-            participants = data.get('participants', [])
-            emails = data.get('emails', {})
-            other_uid = next((uid for uid in participants if uid != current_uid), None)
+            other_uid = next((uid for uid in data['participants'] if uid != current_uid), None)
             if other_uid:
-                chat_list.append({
-                    'other_uid': other_uid,
-                    'other_email': emails.get(other_uid, 'Unknown User'),
-                    'last_message': data.get('last_message', 'No messages yet')
-                })
-    except Exception as e: print(f"Error: {e}")
+                chat_list.append({'other_uid': other_uid, 'other_email': data['emails'].get(other_uid, 'User'), 'last_message': data['last_message']})
+    except Exception: pass
     return render_template('inbox.html', chats=chat_list)
-
-# NEW: Apply Route
-@app.route('/apply_seller', methods=['GET'])
-@login_required
-def apply_seller():
-    return render_template('apply_seller.html')
-
-# UPDATED: Protected Sell Route
-@app.route('/sell', methods=['GET'])
-@login_required 
-@seller_required # <--- Protected
-def sell(): return render_template('sell.html')
-
-# UPDATED: Protected Service Route
-@app.route('/offer_service', methods=['GET'])
-@login_required 
-@seller_required # <--- Protected
-def offer_service(): return render_template('services.html')
 
 @app.route('/profile')
 @app.route('/profile/<target_uid>')
 @login_required 
 def profile(target_uid=None):
-    global db
     current_uid = session.get('uid')
     view_uid = target_uid if target_uid else current_uid
     is_own_profile = (view_uid == current_uid)
@@ -209,27 +214,20 @@ def profile(target_uid=None):
         user_doc = db.collection('users').document(view_uid).get()
         if user_doc.exists: user_info = user_doc.to_dict()
         products_ref = db.collection('products').where('seller_uid', '==', view_uid).stream()
-        for doc in products_ref:
-            p = doc.to_dict()
-            p['id'] = doc.id
-            user_products.append(p)
+        for doc in products_ref: user_products.append(doc.to_dict() | {'id': doc.id})
         services_ref = db.collection('services').where('provider_uid', '==', view_uid).stream()
-        for doc in services_ref:
-            s = doc.to_dict()
-            s['id'] = doc.id
-            user_services.append(s)
+        for doc in services_ref: user_services.append(doc.to_dict() | {'id': doc.id})
         reviews_ref = db.collection('users').document(view_uid).collection('reviews').stream()
         for doc in reviews_ref: reviews.append(doc.to_dict())
-    except Exception as e: print(f"Error: {e}")
+    except Exception: pass
     return render_template('profile.html', products=user_products, services=user_services, user=user_info, is_own_profile=is_own_profile, reviews=reviews, view_uid=view_uid)
 
 @app.route('/settings')
 @login_required 
 def settings():
-    current_uid = session.get('uid')
     user_info = {}
     try:
-        user_doc = db.collection('users').document(current_uid).get()
+        user_doc = db.collection('users').document(session['uid']).get()
         if user_doc.exists: user_info = user_doc.to_dict()
     except Exception: pass
     return render_template('settings.html', user=user_info, faculties=FACULTIES)
@@ -248,10 +246,8 @@ def chat(seller_uid):
         if item_id:
             item_doc = db.collection('products').document(item_id).get()
             if not item_doc.exists: item_doc = db.collection('services').document(item_id).get()
-            if item_doc.exists:
-                item_context = item_doc.to_dict()
-                item_context['id'] = item_id
-    except Exception: opponent_email = 'Unknown Seller'
+            if item_doc.exists: item_context = item_doc.to_dict()
+    except Exception: opponent_email = 'Unknown'
     return render_template('chat.html', room_id=room_id, opponent_email=opponent_email, seller_uid=seller_uid, current_uid=current_uid, current_email=current_email, item_context=item_context)
 
 @app.route('/logout')
@@ -264,51 +260,17 @@ def logout():
 def admin_dashboard():
     if session.get('user_email') not in ADMIN_EMAILS: return "Access Denied", 403
     reports = []
-    applications = [] # NEW LIST
+    applications = []
     try:
-        # Fetch Reports
         reports_ref = db.collection('reports').order_by('timestamp', direction=firestore.Query.DESCENDING).stream()
-        for doc in reports_ref:
-            r = doc.to_dict()
-            r['id'] = doc.id
-            reports.append(r)
-            
-        # Fetch Pending Applications
+        for doc in reports_ref: reports.append(doc.to_dict() | {'id': doc.id})
         apps_ref = db.collection('seller_applications').where('status', '==', 'pending').stream()
-        for doc in apps_ref:
-            a = doc.to_dict()
-            a['id'] = doc.id
-            applications.append(a)
-            
+        for doc in apps_ref: applications.append(doc.to_dict() | {'id': doc.id})
     except Exception: pass
     return render_template('admin.html', reports=reports, applications=applications)
 
 # --- API ROUTES ---
 
-# NEW: Submit Verification
-@app.route('/api/submit_verification', methods=['POST'])
-@login_required
-def api_submit_verification():
-    data = request.get_json()
-    uid = session['uid']
-    try:
-        # Save sensitive data to a SEPARATE secure collection
-        db.collection('seller_applications').add({
-            'uid': uid,
-            'email': session['user_email'],
-            'real_name': data['real_name'],
-            'nric': data['nric'],
-            'matric': data['matric'],
-            'id_card_url': data['id_card_url'],
-            'status': 'pending',
-            'timestamp': firestore.SERVER_TIMESTAMP
-        })
-        # Update user status to pending
-        db.collection('users').document(uid).update({'seller_status': 'pending'})
-        return jsonify({'success': True, 'message': 'Application submitted. Wait for approval.'})
-    except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
-
-# MODIFIED: Signup sets seller_status to 'none'
 @app.route('/api/signup', methods=['POST'])
 def api_signup():
     data = request.get_json()
@@ -319,13 +281,9 @@ def api_signup():
         except:
             user = auth.get_user_by_email(data['email'])
             uid = user.uid
-        
         db.collection('users').document(uid).set({
-            'email': data['email'],
-            'full_name': data.get('fullName'),
-            'phone_number': data.get('phoneNumber'), 
-            'faculty': data.get('faculty'), 
-            'seller_status': 'none', # NEW DEFAULT
+            'email': data['email'], 'full_name': data.get('fullName'), 'phone_number': data.get('phoneNumber'), 
+            'faculty': data.get('faculty'), 'seller_status': 'none', 'sold_count': 0, 
             'created_at': firestore.SERVER_TIMESTAMP
         }, merge=True)
         return jsonify({'success': True, 'message': 'Account created.'})
@@ -340,14 +298,13 @@ def api_login():
         email = data['email']
         otp = ''.join(random.choices(string.digits, k=6))
         session['temp_uid'] = uid; session['temp_email'] = email; session['mfa_otp'] = otp
-        msg = Message('Your UniTrade Login Code', sender='security@unitrade.com', recipients=[email])
-        msg.body = f"Your verification code is: {otp}"
+        
+        msg = Message('UniTrade Login Code', sender='security@unitrade.com', recipients=[email])
+        msg.body = f"Your code: {otp}"
         mail.send(msg)
-        print(f"DEBUG: Sent OTP {otp} to {email}")
-        return jsonify({'success': True, 'mfa_required': True, 'message': 'OTP sent!'})
-    except Exception as e:
-        print(f"Login Error: {e}")
-        return jsonify({'success': False, 'message': 'Login failed.'}), 401
+        
+        return jsonify({'success': True, 'mfa_required': True})
+    except Exception as e: return jsonify({'success': False, 'message': 'Login failed.'}), 401
 
 @app.route('/api/verify_mfa', methods=['POST'])
 def api_verify_mfa():
@@ -369,6 +326,7 @@ def api_sell():
         db.collection('products').add({
             'seller_uid': user_uid, 'seller_email': decoded_token.get('email'), 'seller_name': user_name,
             'name': data.get('name'), 'description': data.get('description'), 'price': float(data.get('price')),
+            'category': data.get('category'), 
             'image_url': data.get('image_url'), 'status': 'available', 'created_at': firestore.SERVER_TIMESTAMP
         })
         return jsonify({'success': True, 'redirect_url': url_for('dashboard')})
@@ -402,10 +360,39 @@ def api_buy_request():
             'status': 'pending_approval', 'created_at': firestore.SERVER_TIMESTAMP
         })
         room_id = get_chat_room_id(session['uid'], data['seller_uid'])
-        msg_text = f"📢 I have requested to buy '{data['item_name']}'."
+        msg_text = f"📢 Buy Request for '{data['item_name']}'"
         db.collection('chats').doc(room_id).collection('messages').add({'text': msg_text, 'timestamp': firestore.SERVER_TIMESTAMP, 'sender_uid': session['uid']})
         db.collection('chats').doc(room_id).set({'participants': [session['uid'], data['seller_uid']], 'last_message': "New Buy Request", 'last_updated': firestore.SERVER_TIMESTAMP, 'emails': { session['uid']: session['user_email'] }}, merge=True)
+        
+        # NOTIFY SELLER
+        seller_doc = db.collection('users').document(data['seller_uid']).get()
+        if seller_doc.exists:
+            seller_email = seller_doc.to_dict().get('email')
+            msg = Message('New Order Request!', sender='orders@unitrade.com', recipients=[seller_email])
+            msg.body = f"Good news! Someone wants to buy your {data['item_name']}. Check your dashboard."
+            mail.send(msg)
+
         return jsonify({'success': True, 'message': 'Request sent to seller!'})
+    except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/handle_order', methods=['POST'])
+@login_required
+def api_handle_order():
+    data = request.get_json()
+    try:
+        order_ref = db.collection('transactions').document(data['order_id'])
+        order = order_ref.get()
+        if not order.exists or order.to_dict()['seller_uid'] != session['uid']: return jsonify({'success': False}), 403
+        
+        status = 'completed' if data['action'] == 'accept' else 'rejected'
+        order_ref.update({'status': status})
+        
+        if status == 'completed': 
+            db.collection('products').document(order.to_dict()['item_id']).update({'status': 'sold'})
+            # Count Sale
+            db.collection('users').document(session['uid']).update({'sold_count': firestore.Increment(1)})
+
+        return jsonify({'success': True, 'message': 'Order ' + status})
     except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/report', methods=['POST'])
@@ -425,31 +412,19 @@ def api_report():
         return jsonify({'success': True, 'message': 'Report submitted.'})
     except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
 
-# MODIFIED: Handle Seller Approval
 @app.route('/api/admin_action', methods=['POST'])
 @login_required
 def api_admin_action():
     if session.get('user_email') not in ADMIN_EMAILS: return jsonify({'success': False}), 403
     data = request.get_json()
     action = data.get('action')
-    
     try:
         if action in ['approve_seller', 'reject_seller']:
-            app_id = data.get('report_id') # Reusing ID field
-            app_ref = db.collection('seller_applications').document(app_id)
-            app_doc = app_ref.get().to_dict()
-            user_uid = app_doc['uid']
-            
-            if action == 'approve_seller':
-                db.collection('users').document(user_uid).update({'seller_status': 'approved'})
-                app_ref.update({'status': 'approved'})
-                return jsonify({'success': True, 'message': 'Seller Approved.'})
-            else:
-                db.collection('users').document(user_uid).update({'seller_status': 'rejected'})
-                app_ref.update({'status': 'rejected'})
-                return jsonify({'success': True, 'message': 'Seller Rejected.'})
-
-        # Existing Report Logic...
+            app_id = data.get('report_id'); app_ref = db.collection('seller_applications').document(app_id); app_doc = app_ref.get().to_dict(); user_uid = app_doc['uid']
+            status = 'approved' if action == 'approve_seller' else 'rejected'
+            db.collection('users').document(user_uid).update({'seller_status': status})
+            app_ref.update({'status': status})
+            return jsonify({'success': True, 'message': 'Seller ' + status})
         report_ref = db.collection('reports').document(data['report_id'])
         report = report_ref.get().to_dict()
         if action == 'delete_item':
@@ -467,8 +442,7 @@ def api_delete_product():
         prod_ref = db.collection('products').document(data['product_id'])
         prod = prod_ref.get()
         if prod.exists and prod.to_dict().get('seller_uid') == session['uid']:
-            prod_ref.delete()
-            return jsonify({'success': True})
+            prod_ref.delete(); return jsonify({'success': True})
         return jsonify({'success': False, 'message': 'Error'}), 400
     except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
 
@@ -477,26 +451,9 @@ def api_update_profile():
     data = request.get_json()
     try:
         db.collection('users').document(session['uid']).update({
-            'full_name': data['full_name'], 
-            'phone_number': data['phone_number'],
-            'faculty': data['faculty']
+            'full_name': data['full_name'], 'phone_number': data['phone_number'], 'faculty': data['faculty']
         })
         return jsonify({'success': True, 'message': 'Updated.'})
-    except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
-
-@app.route('/api/handle_order', methods=['POST'])
-@login_required
-def api_handle_order():
-    data = request.get_json()
-    try:
-        order_ref = db.collection('transactions').document(data['order_id'])
-        order = order_ref.get()
-        if not order.exists or order.to_dict()['seller_uid'] != session['uid']: return jsonify({'success': False}), 403
-        
-        status = 'completed' if data['action'] == 'accept' else 'rejected'
-        order_ref.update({'status': status})
-        if status == 'completed': db.collection('products').document(order.to_dict()['item_id']).update({'status': 'sold'})
-        return jsonify({'success': True, 'message': 'Order ' + status})
     except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/add_review', methods=['POST'])
@@ -505,12 +462,19 @@ def api_add_review():
     data = request.get_json()
     try:
         db.collection('users').document(data['target_uid']).collection('reviews').add({
-            'reviewer_email': session['user_email'],
-            'rating': int(data['rating']),
-            'comment': data['comment'],
-            'timestamp': firestore.SERVER_TIMESTAMP
+            'reviewer_email': session['user_email'], 'rating': int(data['rating']), 'comment': data['comment'], 'timestamp': firestore.SERVER_TIMESTAMP
         })
         return jsonify({'success': True, 'message': 'Review submitted!'})
+    except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/submit_verification', methods=['POST'])
+@login_required
+def api_submit_verification():
+    data = request.get_json(); uid = session['uid']
+    try:
+        db.collection('seller_applications').add({'uid': uid, 'email': session['user_email'], 'real_name': data['real_name'], 'nric': data['nric'], 'matric': data['matric'], 'id_card_url': data['id_card_url'], 'status': 'pending', 'timestamp': firestore.SERVER_TIMESTAMP})
+        db.collection('users').document(uid).update({'seller_status': 'pending'})
+        return jsonify({'success': True, 'message': 'Application submitted.'})
     except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
 
 if __name__ == '__main__':
