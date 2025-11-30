@@ -1,163 +1,205 @@
-/* General Body Styles */
+/* --- 1. FONTS & GLOBAL VARIABLES --- */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
+
+:root {
+    --primary-blue: #004aad;
+    --dark-blue: #002a4d;
+    --accent-blue: #e6f0ff;
+    --text-dark: #2d3436;
+    --text-muted: #636e72;
+    --bg-color: #f4f7f6;
+    --card-shadow: 0 10px 20px rgba(0, 0, 0, 0.05);
+    --hover-shadow: 0 15px 25px rgba(0, 74, 173, 0.15);
+}
+
 body {
-  background: linear-gradient(to right, #e9f1ff, #ffffff);
-  font-family: 'Segoe UI', sans-serif;
+    background-color: var(--bg-color);
+    font-family: 'Poppins', sans-serif;
+    color: var(--text-dark);
+    -webkit-font-smoothing: antialiased;
 }
 
-/* Card Styling */
+h1, h2, h3, h4, h5, h6 {
+    font-weight: 700;
+    color: var(--dark-blue);
+}
+
+/* --- 2. NAVBAR --- */
+.navbar {
+    background: linear-gradient(135deg, var(--primary-blue), var(--dark-blue)) !important;
+    box-shadow: 0 4px 12px rgba(0, 74, 173, 0.2);
+    padding: 15px 0;
+}
+
+.navbar-brand {
+    font-size: 1.5rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.nav-link {
+    font-weight: 500;
+    transition: color 0.3s ease;
+}
+
+.nav-link:hover {
+    color: #ffdd59 !important; /* Pop of yellow on hover */
+}
+
+/* --- 3. CARDS (The "Floating" Effect) --- */
 .card {
-  border-radius: 15px;
+    border: none;
+    border-radius: 16px;
+    background: white;
+    box-shadow: var(--card-shadow);
+    transition: all 0.3s ease;
+    overflow: hidden;
 }
 
-/* Button Styles */
+.card:hover {
+    transform: translateY(-8px); /* Lifts up */
+    box-shadow: var(--hover-shadow);
+}
+
+.card img {
+    height: 220px;
+    object-fit: cover;
+    transition: transform 0.5s ease;
+}
+
+.card:hover img {
+    transform: scale(1.05); /* Slight zoom on image */
+}
+
+.card-body {
+    padding: 1.5rem;
+}
+
+.card-title {
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
+}
+
+/* --- 4. BUTTONS (Modern Pills) --- */
+.btn {
+    border-radius: 50px; /* Pill shape */
+    padding: 8px 24px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
 .btn-primary {
-  background-color: #004aad;
-  border: none;
+    background-color: var(--primary-blue);
+    border: none;
 }
 
 .btn-primary:hover {
-  background-color: #00347a;
+    background-color: var(--dark-blue);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0, 74, 173, 0.3);
 }
 
-/* === Dashboard Page === */
-.card img {
-  height: 200px;
-  object-fit: cover;
+.btn-outline-primary {
+    color: var(--primary-blue);
+    border-color: var(--primary-blue);
 }
 
-footer {
-  font-size: 14px;
+.btn-outline-primary:hover {
+    background-color: var(--primary-blue);
+    color: white;
 }
 
-/* === Chat Page === */
+/* --- 5. BADGES & ALERTS --- */
+.badge {
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+}
+
+.badge-avail {
+    background-color: #00b894; /* Mint Green */
+    color: white;
+}
+
+.badge-unavail {
+    background-color: #ff7675; /* Soft Red */
+    color: white;
+}
+
+.alert {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+}
+
+/* --- 6. CHAT INTERFACE (Like WhatsApp) --- */
 .chat-box {
-  background-color: #f8f9fa;
-  height: 400px;
-  overflow-y: auto;
+    background-color: #ffffff;
+    border-radius: 20px;
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.05);
+    padding: 20px;
 }
 
 .message {
-  max-width: 75%;
-  padding: 10px 14px;
-  margin-bottom: 12px;
-  border-radius: 15px;
-  position: relative;
-  font-size: 15px;
-}
-
-.message p {
-  margin: 0;
+    max-width: 70%;
+    padding: 12px 18px;
+    margin-bottom: 15px;
+    border-radius: 18px;
+    font-size: 14px;
+    line-height: 1.5;
+    position: relative;
 }
 
 .message.seller {
-  background-color: #e2e3e5;
-  align-self: flex-start;
+    background-color: #f1f2f6;
+    color: var(--text-dark);
+    border-bottom-left-radius: 4px;
 }
 
 .message.buyer {
-  background-color: #004aad;
-  color: white;
-  margin-left: auto;
-  align-self: flex-end;
+    background: linear-gradient(135deg, var(--primary-blue), #4a90e2);
+    color: white;
+    margin-left: auto;
+    border-bottom-right-radius: 4px;
+    box-shadow: 0 4px 10px rgba(0, 74, 173, 0.3);
 }
 
-.message .time {
-  font-size: 12px;
-  color: gray;
-  display: block;
-  text-align: right;
-  margin-top: 4px;
+/* --- 7. CATEGORY SCROLL --- */
+.category-scroll {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding: 10px 5px;
+    -webkit-overflow-scrolling: touch;
 }
 
-.card-footer {
-  background-color: white;
-  border-top: 1px solid #ddd;
+.category-scroll::-webkit-scrollbar {
+    height: 6px;
 }
 
-/* === Sell Page === */
-form label {
-  font-weight: bold;
-  margin-bottom: 8px;
+.category-scroll::-webkit-scrollbar-thumb {
+    background-color: #dfe6e9;
+    border-radius: 10px;
 }
 
-form input, form textarea {
-  margin-bottom: 15px;
+/* --- 8. LEADERBOARD --- */
+.table-hover tbody tr:hover {
+    background-color: var(--accent-blue);
+    transform: scale(1.01);
+    transition: transform 0.2s ease;
 }
 
-form button {
-  width: 100%;
-  background-color: #004aad;
-  color: white;
-  font-size: 16px;
+/* --- 9. FORMS --- */
+.form-control, .form-select {
+    border-radius: 10px;
+    padding: 12px;
+    border: 1px solid #dfe6e9;
+    background-color: #fdfdfd;
 }
 
-form button:hover {
-  background-color: #00347a;
-}
-
-h2 {
-  font-size: 28px;
-  font-weight: bold;
-  margin-bottom: 20px;
-}
-
-/* === Profile Page === */
-.profile-info {
-  margin-bottom: 20px;
-}
-
-.profile-info p {
-  font-size: 18px;
-}
-
-.profile-info strong {
-  font-weight: bold;
-}
-
-.profile-info span {
-  color: #004aad;
-}
-
-button {
-  background-color: #004aad;
-  color: white;
-}
-
-button:hover {
-  background-color: #00347a;
-}
-
-h2 {
-  font-size: 28px;
-  font-weight: bold;
-  margin-bottom: 20px;
-}
-
-/* === Settings Page === */
-form input {
-  margin-bottom: 15px;
-}
-
-form button {
-  width: 100%;
-  font-size: 16px;
-}
-
-form button:hover {
-  background-color: #00347a;
-}
-
-h2 {
-  font-size: 28px;
-  font-weight: bold;
-  margin-bottom: 20px;
-}
-
-/* General Footer Styling */
-footer {
-  font-size: 14px;
-  text-align: center;
-  padding: 15px;
-  background-color: #f8f9fa;
-  border-top: 1px solid #ddd;
+.form-control:focus {
+    border-color: var(--primary-blue);
+    box-shadow: 0 0 0 4px rgba(0, 74, 173, 0.1);
 }
