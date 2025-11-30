@@ -4,6 +4,7 @@ import random
 import string
 import datetime
 import firebase_admin
+from threading import Thread # <--- NEW IMPORT
 from firebase_admin import credentials, auth, firestore, storage
 from flask import Flask, render_template, request, redirect, url_for, session, make_response, jsonify
 from flask_mail import Mail, Message
@@ -14,7 +15,7 @@ app.config['SECRET_KEY'] = 'YOUR_VERY_STRONG_SECRET_KEY_FOR_SESSIONS'
 
 # --- MAILTRAP CONFIG ---
 app.config['MAIL_SERVER']='sandbox.smtp.mailtrap.io'
-app.config['MAIL_PORT'] = 587
+app.config['MAIL_PORT'] = 587 # Keep this as 587
 app.config['MAIL_USERNAME'] = 'cad59bfc8c172b'
 app.config['MAIL_PASSWORD'] = '5856f8bc0a3f03'
 app.config['MAIL_USE_TLS'] = True
@@ -26,6 +27,7 @@ KEY_FILE_NAME = 'key.json'
 STORAGE_BUCKET = "unitrade-839f0.firebasestorage.app" 
 ADMIN_EMAILS = ["test@unitrade.com"]
 
+# --- DATA LISTS ---
 FACULTIES = [
     "Faculty of Quranic and Sunnah Studies (FPQS)", "Faculty of Leadership and Management (FKP)",
     "Faculty of Syariah and Law (FSU)", "Faculty of Economics and Muamalat (FEM)",
@@ -35,7 +37,7 @@ FACULTIES = [
 ]
 
 CATEGORIES = ["Textbooks", "Electronics", "Clothing", "Food", "Furniture", "Stationery", "Others"]
-CONDITIONS = ["Brand New", "Like New", "Lightly Used", "Well Used", "Heavily Used"] # NEW
+CONDITIONS = ["Brand New", "Like New", "Lightly Used", "Well Used", "Heavily Used"]
 
 db = None
 bucket = None
@@ -54,6 +56,17 @@ if cred:
     bucket = storage.bucket()
 else:
     print("WARNING: No credentials found.")
+
+# --- HELPER FUNCTIONS ---
+
+# NEW: Async Email Function
+def send_async_email(app, msg):
+    with app.app_context():
+        try:
+            mail.send(msg)
+            print("Email sent successfully!")
+        except Exception as e:
+            print(f"Failed to send email: {e}")
 
 def login_required(f):
     def wrap(*args, **kwargs):
@@ -95,6 +108,7 @@ def dashboard():
     user_email = session.get('user_email', 'User')
     current_uid = session.get('uid')
     is_admin = user_email in ADMIN_EMAILS 
+    
     search_query = request.args.get('q', '').lower()
     category_filter = request.args.get('category', 'All')
     
@@ -107,7 +121,6 @@ def dashboard():
     purchases = []
 
     try:
-        # 1. Products
         products_ref = db.collection('products').order_by('created_at', direction=firestore.Query.DESCENDING).stream()
         for doc in products_ref:
             p = doc.to_dict()
@@ -118,7 +131,6 @@ def dashboard():
                 if matches_search and matches_cat: products.append(p)
         products = products[:20] 
 
-        # 2. Services
         services_ref = db.collection('services').order_by('created_at', direction=firestore.Query.DESCENDING).stream()
         for doc in services_ref:
             s = doc.to_dict()
@@ -126,14 +138,12 @@ def dashboard():
             if not search_query or (search_query in s.get('service_type', '').lower() or search_query in s.get('description', '').lower()):
                 services.append(s)
 
-        # 3. Incoming Orders (ONLY PENDING for Badge Count)
         orders_ref = db.collection('transactions').where('seller_uid', '==', current_uid).where('status', '==', 'pending_approval').stream()
         for doc in orders_ref:
             o = doc.to_dict()
             o['id'] = doc.id
             orders.append(o)
 
-        # 4. My Purchases
         purchases_ref = db.collection('transactions').where('buyer_uid', '==', current_uid).stream()
         for doc in purchases_ref:
             p = doc.to_dict()
@@ -156,7 +166,6 @@ def leaderboard():
         for doc in users_ref:
             u = doc.to_dict()
             if u.get('sold_count', 0) > 0:
-                # Ensure UID is included for the profile link
                 u['uid'] = doc.id 
                 top_sellers.append(u)
     except Exception: pass
@@ -284,9 +293,12 @@ def api_login():
         uid = decoded_token['uid']; email = data['email']
         otp = ''.join(random.choices(string.digits, k=6))
         session['temp_uid'] = uid; session['temp_email'] = email; session['mfa_otp'] = otp
+        
+        # THREADED EMAIL SENDING (FIXES TIMEOUT)
         msg = Message('UniTrade Login Code', sender='security@unitrade.com', recipients=[email])
         msg.body = f"Your code: {otp}"
-        mail.send(msg)
+        Thread(target=send_async_email, args=(app, msg)).start() # <--- This line fixes the lag!
+        
         return jsonify({'success': True, 'mfa_required': True})
     except Exception as e: print(f"Login Error: {e}"); return jsonify({'success': False, 'message': 'Login failed.'}), 401
 
@@ -299,7 +311,6 @@ def api_verify_mfa():
         return jsonify({'success': True, 'redirect_url': url_for('dashboard')})
     return jsonify({'success': False, 'message': 'Invalid Code'}), 400
 
-# UPDATED: Sell with Condition
 @app.route('/api/sell', methods=['POST'])
 def api_sell():
     data = request.get_json()
@@ -311,7 +322,7 @@ def api_sell():
         db.collection('products').add({
             'seller_uid': user_uid, 'seller_email': decoded_token.get('email'), 'seller_name': user_name,
             'name': data.get('name'), 'description': data.get('description'), 'price': float(data.get('price')),
-            'category': data.get('category'), 'condition': data.get('condition'), # NEW
+            'category': data.get('category'), 'condition': data.get('condition'),
             'image_url': data.get('image_url'), 'status': 'available', 'created_at': firestore.SERVER_TIMESTAMP
         })
         return jsonify({'success': True, 'redirect_url': url_for('dashboard')})
@@ -349,12 +360,14 @@ def api_buy_request():
         db.collection('chats').doc(room_id).collection('messages').add({'text': msg_text, 'timestamp': firestore.SERVER_TIMESTAMP, 'sender_uid': session['uid']})
         db.collection('chats').doc(room_id).set({'participants': [session['uid'], data['seller_uid']], 'last_message': "New Buy Request", 'last_updated': firestore.SERVER_TIMESTAMP, 'emails': { session['uid']: session['user_email'] }}, merge=True)
         
+        # Threaded Email
         seller_doc = db.collection('users').document(data['seller_uid']).get()
         if seller_doc.exists:
             seller_email = seller_doc.to_dict().get('email')
             msg = Message('New Order Request!', sender='orders@unitrade.com', recipients=[seller_email])
-            msg.body = f"Good news! Someone wants to buy your {data['item_name']}. Check your dashboard."
-            mail.send(msg)
+            msg.body = f"Good news! Someone wants to buy your {data['item_name']}."
+            Thread(target=send_async_email, args=(app, msg)).start()
+
         return jsonify({'success': True, 'message': 'Request sent to seller!'})
     except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
 
@@ -369,11 +382,9 @@ def api_handle_order():
         
         status = 'completed' if data['action'] == 'accept' else 'rejected'
         order_ref.update({'status': status})
-        
         if status == 'completed': 
             db.collection('products').document(order.to_dict()['item_id']).update({'status': 'sold'})
             db.collection('users').document(session['uid']).update({'sold_count': firestore.Increment(1)})
-
         return jsonify({'success': True, 'message': 'Order ' + status})
     except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
 
