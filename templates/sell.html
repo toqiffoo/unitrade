@@ -30,13 +30,25 @@
                         </div>
 
                         <div class="mb-3">
+                            <label class="form-label">Condition</label>
+                            <select class="form-select" id="condition" required>
+                                <option value="" selected disabled>Select Condition...</option>
+                                {% for cond in conditions %}
+                                    <option value="{{ cond }}">{{ cond }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
                             <label class="form-label">Description</label>
                             <textarea class="form-control" id="description" rows="3" required></textarea>
                         </div>
+
                         <div class="mb-3">
                             <label class="form-label">Price (RM)</label>
                             <input type="number" class="form-control" id="price" step="0.01" required>
                         </div>
+
                         <div class="mb-4">
                             <label class="form-label">Image</label>
                             <input type="file" class="form-control" id="image" accept="image/*" required>
@@ -75,7 +87,11 @@
             const name = document.getElementById('name').value;
             const description = document.getElementById('description').value;
             const price = document.getElementById('price').value;
+            
+            // GET NEW VALUES
             const category = document.getElementById('category').value;
+            const condition = document.getElementById('condition').value;
+            
             const imageFile = document.getElementById('image').files[0];
 
             if (!imageFile) return alert("Please select an image.");
@@ -96,7 +112,8 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
-                        name, description, price, category,
+                        name, description, price, 
+                        category, condition, // SEND NEW VALUES
                         image_url: imageUrl, idToken: await user.getIdToken() 
                     }),
                 });

@@ -26,7 +26,6 @@ KEY_FILE_NAME = 'key.json'
 STORAGE_BUCKET = "unitrade-839f0.firebasestorage.app" 
 ADMIN_EMAILS = ["test@unitrade.com"]
 
-# --- DATA LISTS ---
 FACULTIES = [
     "Faculty of Quranic and Sunnah Studies (FPQS)", "Faculty of Leadership and Management (FKP)",
     "Faculty of Syariah and Law (FSU)", "Faculty of Economics and Muamalat (FEM)",
@@ -35,9 +34,8 @@ FACULTIES = [
     "Faculty of Engineering and Built Environment (FKAB)", "Tamhidi Centre", "STAFF"
 ]
 
-CATEGORIES = [
-    "Textbooks", "Electronics", "Clothing", "Food", "Furniture", "Stationery", "Others"
-]
+CATEGORIES = ["Textbooks", "Electronics", "Clothing", "Food", "Furniture", "Stationery", "Others"]
+CONDITIONS = ["Brand New", "Like New", "Lightly Used", "Well Used", "Heavily Used"] # NEW
 
 db = None
 bucket = None
@@ -70,8 +68,7 @@ def seller_required(f):
         user_doc = db.collection('users').document(session['uid']).get()
         if user_doc.exists:
             status = user_doc.to_dict().get('seller_status', 'none')
-            if status != 'approved':
-                return redirect(url_for('dashboard'))
+            if status != 'approved': return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     wrap.__name__ = f.__name__
     return wrap
@@ -98,12 +95,9 @@ def dashboard():
     user_email = session.get('user_email', 'User')
     current_uid = session.get('uid')
     is_admin = user_email in ADMIN_EMAILS 
-    
-    # Filters
     search_query = request.args.get('q', '').lower()
     category_filter = request.args.get('category', 'All')
     
-    # Check Seller Status
     user_doc = db.collection('users').document(current_uid).get()
     seller_status = user_doc.to_dict().get('seller_status', 'none') if user_doc.exists else 'none'
 
@@ -113,7 +107,7 @@ def dashboard():
     purchases = []
 
     try:
-        # 1. Fetch Products (With Category Filter)
+        # 1. Products
         products_ref = db.collection('products').order_by('created_at', direction=firestore.Query.DESCENDING).stream()
         for doc in products_ref:
             p = doc.to_dict()
@@ -121,13 +115,10 @@ def dashboard():
             if p.get('status') != 'sold': 
                 matches_search = not search_query or (search_query in p.get('name', '').lower() or search_query in p.get('description', '').lower())
                 matches_cat = category_filter == 'All' or p.get('category') == category_filter
-                if matches_search and matches_cat:
-                    products.append(p)
-        
-        # Simple Pagination (Limit to 20)
+                if matches_search and matches_cat: products.append(p)
         products = products[:20] 
 
-        # 2. Fetch Services
+        # 2. Services
         services_ref = db.collection('services').order_by('created_at', direction=firestore.Query.DESCENDING).stream()
         for doc in services_ref:
             s = doc.to_dict()
@@ -135,8 +126,8 @@ def dashboard():
             if not search_query or (search_query in s.get('service_type', '').lower() or search_query in s.get('description', '').lower()):
                 services.append(s)
 
-        # 3. Incoming Orders
-        orders_ref = db.collection('transactions').where('seller_uid', '==', current_uid).stream()
+        # 3. Incoming Orders (ONLY PENDING for Badge Count)
+        orders_ref = db.collection('transactions').where('seller_uid', '==', current_uid).where('status', '==', 'pending_approval').stream()
         for doc in orders_ref:
             o = doc.to_dict()
             o['id'] = doc.id
@@ -165,19 +156,20 @@ def leaderboard():
         for doc in users_ref:
             u = doc.to_dict()
             if u.get('sold_count', 0) > 0:
+                # Ensure UID is included for the profile link
+                u['uid'] = doc.id 
                 top_sellers.append(u)
     except Exception: pass
     return render_template('leaderboard.html', top_sellers=top_sellers)
 
 @app.route('/apply_seller', methods=['GET'])
 @login_required
-def apply_seller():
-    return render_template('apply_seller.html')
+def apply_seller(): return render_template('apply_seller.html')
 
 @app.route('/sell', methods=['GET'])
 @login_required 
 @seller_required 
-def sell(): return render_template('sell.html', categories=CATEGORIES)
+def sell(): return render_template('sell.html', categories=CATEGORIES, conditions=CONDITIONS)
 
 @app.route('/offer_service', methods=['GET'])
 @login_required 
@@ -275,16 +267,11 @@ def admin_dashboard():
 def api_signup():
     data = request.get_json()
     try:
-        try:
-            user = auth.create_user(email=data['email'], password=data['password'])
-            uid = user.uid
-        except:
-            user = auth.get_user_by_email(data['email'])
-            uid = user.uid
+        try: user = auth.create_user(email=data['email'], password=data['password']); uid = user.uid
+        except: user = auth.get_user_by_email(data['email']); uid = user.uid
         db.collection('users').document(uid).set({
             'email': data['email'], 'full_name': data.get('fullName'), 'phone_number': data.get('phoneNumber'), 
-            'faculty': data.get('faculty'), 'seller_status': 'none', 'sold_count': 0, 
-            'created_at': firestore.SERVER_TIMESTAMP
+            'faculty': data.get('faculty'), 'seller_status': 'none', 'sold_count': 0, 'created_at': firestore.SERVER_TIMESTAMP
         }, merge=True)
         return jsonify({'success': True, 'message': 'Account created.'})
     except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
@@ -294,17 +281,14 @@ def api_login():
     data = request.get_json()
     try:
         decoded_token = auth.verify_id_token(data['idToken'], clock_skew_seconds=60)
-        uid = decoded_token['uid']
-        email = data['email']
+        uid = decoded_token['uid']; email = data['email']
         otp = ''.join(random.choices(string.digits, k=6))
         session['temp_uid'] = uid; session['temp_email'] = email; session['mfa_otp'] = otp
-        
         msg = Message('UniTrade Login Code', sender='security@unitrade.com', recipients=[email])
         msg.body = f"Your code: {otp}"
         mail.send(msg)
-        
         return jsonify({'success': True, 'mfa_required': True})
-    except Exception as e: return jsonify({'success': False, 'message': 'Login failed.'}), 401
+    except Exception as e: print(f"Login Error: {e}"); return jsonify({'success': False, 'message': 'Login failed.'}), 401
 
 @app.route('/api/verify_mfa', methods=['POST'])
 def api_verify_mfa():
@@ -315,6 +299,7 @@ def api_verify_mfa():
         return jsonify({'success': True, 'redirect_url': url_for('dashboard')})
     return jsonify({'success': False, 'message': 'Invalid Code'}), 400
 
+# UPDATED: Sell with Condition
 @app.route('/api/sell', methods=['POST'])
 def api_sell():
     data = request.get_json()
@@ -326,7 +311,7 @@ def api_sell():
         db.collection('products').add({
             'seller_uid': user_uid, 'seller_email': decoded_token.get('email'), 'seller_name': user_name,
             'name': data.get('name'), 'description': data.get('description'), 'price': float(data.get('price')),
-            'category': data.get('category'), 
+            'category': data.get('category'), 'condition': data.get('condition'), # NEW
             'image_url': data.get('image_url'), 'status': 'available', 'created_at': firestore.SERVER_TIMESTAMP
         })
         return jsonify({'success': True, 'redirect_url': url_for('dashboard')})
@@ -364,14 +349,12 @@ def api_buy_request():
         db.collection('chats').doc(room_id).collection('messages').add({'text': msg_text, 'timestamp': firestore.SERVER_TIMESTAMP, 'sender_uid': session['uid']})
         db.collection('chats').doc(room_id).set({'participants': [session['uid'], data['seller_uid']], 'last_message': "New Buy Request", 'last_updated': firestore.SERVER_TIMESTAMP, 'emails': { session['uid']: session['user_email'] }}, merge=True)
         
-        # NOTIFY SELLER
         seller_doc = db.collection('users').document(data['seller_uid']).get()
         if seller_doc.exists:
             seller_email = seller_doc.to_dict().get('email')
             msg = Message('New Order Request!', sender='orders@unitrade.com', recipients=[seller_email])
             msg.body = f"Good news! Someone wants to buy your {data['item_name']}. Check your dashboard."
             mail.send(msg)
-
         return jsonify({'success': True, 'message': 'Request sent to seller!'})
     except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
 
@@ -389,7 +372,6 @@ def api_handle_order():
         
         if status == 'completed': 
             db.collection('products').document(order.to_dict()['item_id']).update({'status': 'sold'})
-            # Count Sale
             db.collection('users').document(session['uid']).update({'sold_count': firestore.Increment(1)})
 
         return jsonify({'success': True, 'message': 'Order ' + status})
