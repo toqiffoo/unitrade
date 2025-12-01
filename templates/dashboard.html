@@ -16,7 +16,12 @@
   
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
     <div class="container-fluid">
-        <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}">UniTrade</a>
+        <a class="navbar-brand" href="{{ url_for('dashboard') }}">
+            <div class="brand-logo" style="font-size: 1.5rem; color: white;">
+                <div class="brand-icon" style="border: 2px solid rgba(255,255,255,0.2); box-shadow: none;">U</div>
+                <span style="color: white;">Uni</span><span style="color: #ffdd59;">Trade</span>
+            </div>
+        </a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
             <span class="navbar-toggler-icon"></span>
         </button>

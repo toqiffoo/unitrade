@@ -203,3 +203,44 @@ h1, h2, h3, h4, h5, h6 {
     border-color: var(--primary-blue);
     box-shadow: 0 0 0 4px rgba(0, 74, 173, 0.1);
 }
+
+/* --- BRAND LOGO STYLES --- */
+.brand-logo {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 800; /* Extra bold */
+    font-size: 1.8rem;
+    letter-spacing: -0.5px;
+    color: var(--dark-blue);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px; /* Space between icon and text */
+}
+
+.brand-logo:hover {
+    color: var(--dark-blue); /* Keep color on hover */
+}
+
+.brand-logo span {
+    color: var(--primary-blue); /* The "Trade" part is lighter blue */
+}
+
+.brand-icon {
+    background: linear-gradient(135deg, var(--primary-blue), var(--dark-blue));
+    color: white;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px; /* Soft square shape */
+    font-size: 1.5rem;
+    font-weight: 700;
+    box-shadow: 0 4px 10px rgba(0, 74, 173, 0.3); /* Glow effect */
+}
+
+/* Navbar Adjustment for Logo */
+.navbar-brand {
+    padding: 0;
+    margin: 0;
+}
