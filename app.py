@@ -9,6 +9,7 @@ from firebase_admin import credentials, auth, firestore, storage
 from flask import Flask, render_template, request, redirect, url_for, session, make_response, jsonify
 from flask_mail import Mail, Message
 import google.auth.transport.requests
+import google.generativeai as genai
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'YOUR_VERY_STRONG_SECRET_KEY_FOR_SESSIONS' 
@@ -20,6 +21,11 @@ app.config['MAIL_USERNAME'] = 'cad59bfc8c172b'
 app.config['MAIL_PASSWORD'] = '5856f8bc0a3f03'
 app.config['MAIL_USE_TLS'] = True
 app.config['MAIL_USE_SSL'] = False
+
+# --- AI CONFIGURATION ---
+GENAI_API_KEY = "AIzaSyAHGEqKAPVjPYXUTdbExM1VEg4NOjwOYyM"
+genai.configure(api_key=GENAI_API_KEY)
+model = genai.GenerativeModel('gemini-2.5-flash')
 
 mail = Mail(app) 
 
@@ -469,6 +475,38 @@ def api_submit_verification():
         db.collection('users').document(uid).update({'seller_status': 'pending'})
         return jsonify({'success': True, 'message': 'Application submitted.'})
     except Exception as e: return jsonify({'success': False, 'message': str(e)}), 500
+
+# AI DESCRIPTION GENERATOR
+@app.route('/api/generate_desc', methods=['POST'])
+@login_required
+def generate_desc():
+    data = request.get_json()
+    item_name = data.get('name')
+    category = data.get('category')
+    condition = data.get('condition')
+
+    if not item_name:
+        return jsonify({'success': False, 'message': 'Please enter an item name first.'})
+
+    try:
+        # Create a prompt for the AI
+        prompt = f"""
+        Write a short, catchy, and professional sales description for a student marketplace listing.
+        Item: {item_name}
+        Category: {category}
+        Condition: {condition}
+        Target Audience: University Students.
+        Keep it under 50 words. Do not use hashtags.
+        """
+        
+        response = model.generate_content(prompt)
+        description = response.text.strip()
+        
+        return jsonify({'success': True, 'description': description})
+        
+    except Exception as e:
+        print(f"AI Error: {e}")
+        return jsonify({'success': False, 'message': 'AI is busy. Please write manually.'})
 
 if __name__ == '__main__':
     app.run(debug=True)

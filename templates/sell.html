@@ -41,7 +41,13 @@
 
                         <div class="mb-3">
                             <label class="form-label">Description</label>
-                            <textarea class="form-control" id="description" rows="3" required></textarea>
+                            <div class="input-group">
+                                <textarea class="form-control" id="description" name="description" rows="3" required placeholder="Enter details..."></textarea>
+                                <button class="btn btn-outline-primary" type="button" id="ai-btn" onclick="generateDescription()">
+                                    ✨ AI Generate
+                                </button>
+                            </div>
+                            <small class="text-muted">Type the product name above, then click AI Generate!</small>
                         </div>
 
                         <div class="mb-3">
@@ -132,6 +138,47 @@
                 listBtn.textContent = 'List Item';
             }
         });
+
+        async function generateDescription() {
+            const name = document.getElementById('name').value;
+            const category = document.getElementById('category').value;
+            const condition = document.getElementById('condition').value;
+            const descBox = document.getElementById('description');
+            const btn = document.getElementById('ai-btn');
+
+            if (!name) {
+                alert("Please enter a Product Name first!");
+                return;
+            }
+
+            // UI Loading State
+            btn.disabled = true;
+            btn.innerHTML = "✨ Generating...";
+            descBox.placeholder = "AI is writing...";
+
+            try {
+                const response = await fetch('/api/generate_desc', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, category, condition })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Typewriter effect (optional, but cool)
+                    descBox.value = data.description;
+                } else {
+                    alert(data.message);
+                }
+            } catch (error) {
+                console.error(error);
+                alert("Failed to connect to AI.");
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = "✨ AI Generate";
+            }
+        }
     </script>
 </body>
 </html>
