@@ -275,15 +275,31 @@ def logout():
 @app.route('/admin')
 @login_required
 def admin_dashboard():
-    if session.get('user_email') not in ADMIN_EMAILS: return "Access Denied", 403
+    # 1. Security Check
+    if session.get('user_email') not in ADMIN_EMAILS: 
+        return "Access Denied: You must log in with test@unitrade.com", 403
+    
     reports = []
     applications = []
+    
     try:
+        # 2. Fetch Reports (Safer Syntax)
         reports_ref = db.collection('reports').order_by('timestamp', direction=firestore.Query.DESCENDING).stream()
-        for doc in reports_ref: reports.append(doc.to_dict() | {'id': doc.id})
+        for doc in reports_ref:
+            data = doc.to_dict()
+            data['id'] = doc.id
+            reports.append(data)
+            
+        # 3. Fetch Applications (Safer Syntax)
         apps_ref = db.collection('seller_applications').where('status', '==', 'pending').stream()
-        for doc in apps_ref: applications.append(doc.to_dict() | {'id': doc.id})
-    except Exception: pass
+        for doc in apps_ref:
+            data = doc.to_dict()
+            data['id'] = doc.id
+            applications.append(data)
+            
+    except Exception as e: 
+        print(f"Admin Panel Error: {e}")
+        
     return render_template('admin.html', reports=reports, applications=applications)
 
 # --- API ROUTES ---
@@ -576,47 +592,63 @@ def check_is_scam(text):
 @login_required
 def api_send_message():
     try:
-        # --- DEBUG LOGGING ---
         print("DEBUG: Entering send_message route")
         data = request.get_json()
         text = data.get('text')
         room_id = data.get('room_id')
         user_uid = session.get('uid') 
 
-        print(f"DEBUG: Text: {text}, Room ID: {room_id}, User: {user_uid}")
-
         if not room_id:
-            print("ERROR: Room ID is missing!")
             return jsonify({'success': False, 'message': 'Room ID missing'}), 400
         
         # 1. Run the AI Check
         is_suspicious = check_is_scam(text)
-        
-        # CHANGE: We NO LONGER block the message here.
         if is_suspicious:
-            print("DEBUG: Message flagged as suspicious (Silent Flagging)")
-        
-        print("DEBUG: Preparing to save to DB...")
+            print("DEBUG: Message flagged as suspicious")
 
+        # 2. Save Message to Subcollection
         message_data = {
             'text': text,
             'timestamp': firestore.SERVER_TIMESTAMP,
             'sender_uid': user_uid,
-            'is_suspicious': is_suspicious  # <--- SAVE THE FLAG TO DB
+            'is_suspicious': is_suspicious
         }
         
-        # 2. Save to Firestore (using .document)
         db.collection('chats').document(room_id).collection('messages').add(message_data)
-        print("DEBUG: Message added to subcollection")
 
-        # 3. Update Parent Doc
-        db.collection('chats').document(room_id).set({
+        # 3. CRITICAL FIX: Ensure 'participants' exist for the Inbox to work
+        chat_ref = db.collection('chats').document(room_id)
+        chat_doc = chat_ref.get()
+        
+        update_data = {
             'last_message': text,
             'last_updated': firestore.SERVER_TIMESTAMP
-        }, merge=True)
-        print("DEBUG: Parent doc updated")
+        }
         
-        # 4. ALWAYS return success to the sender (so scammers don't know they are caught)
+        # If this is the FIRST message, we must set the participants and emails
+        if not chat_doc.exists:
+            print("DEBUG: Creating new chat parent document...")
+            try:
+                # Extract both UIDs from the room_id (format: uid1_uid2)
+                uids = room_id.split('_')
+                # Determine which UID is the 'other' person
+                other_uid = uids[0] if uids[1] == user_uid else uids[1]
+                
+                # Fetch other user's email to show in Inbox
+                other_user_doc = db.collection('users').document(other_uid).get()
+                other_email = other_user_doc.to_dict().get('email', 'User') if other_user_doc.exists else 'User'
+                
+                update_data['participants'] = [user_uid, other_uid]
+                update_data['emails'] = {
+                    user_uid: session.get('user_email'),
+                    other_uid: other_email
+                }
+            except Exception as e:
+                print(f"Error setting up chat metadata: {e}")
+
+        # Update the parent document
+        chat_ref.set(update_data, merge=True)
+        
         return jsonify({'success': True})
 
     except Exception as e:
