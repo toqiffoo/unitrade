@@ -23,7 +23,7 @@ app.config['MAIL_USE_TLS'] = True
 app.config['MAIL_USE_SSL'] = False
 
 # --- AI CONFIGURATION ---
-GENAI_API_KEY = "AIzaSyAHGEqKAPVjPYXUTdbExM1VEg4NOjwOYyM"
+GENAI_API_KEY = "AIzaSyD89qJ5nxKFEGiAFvBthBTO0cIO84gbRB8"
 genai.configure(api_key=GENAI_API_KEY)
 model = genai.GenerativeModel('gemini-2.5-flash')
 
