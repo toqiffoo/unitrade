@@ -8,11 +8,33 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <style>
         .chat-window { height: 60vh; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 0.5rem; padding: 15px; background-color: #f8f9fa; }
-        .message-bubble { max-width: 80%; padding: 8px 12px; border-radius: 15px; margin-bottom: 10px; word-wrap: break-word; }
-        .sent { background-color: #0d6efd; color: white; margin-left: auto; border-bottom-right-radius: 2px; }
-        .received { background-color: #e9ecef; color: #333; margin-right: auto; border-bottom-left-radius: 2px; }
+        
+        /* Message Container */
+        .message-wrapper { margin-bottom: 10px; display: flex; flex-direction: column; }
+        .sent { align-items: flex-end; }
+        .received { align-items: flex-start; }
+
+        /* Actual Bubble Styling */
+        .message-bubble { max-width: 80%; padding: 10px 14px; border-radius: 15px; word-wrap: break-word; position: relative; }
+        .bubble-sent { background-color: #0d6efd; color: white; border-bottom-right-radius: 2px; }
+        .bubble-received { background-color: #e9ecef; color: #333; border-bottom-left-radius: 2px; }
+
         /* Context Banner */
         .context-banner { background-color: #e7f1ff; border-bottom: 1px solid #0d6efd; padding: 10px; margin-bottom: 10px; border-radius: 5px; }
+
+        /* NEW: System Warning Style */
+        .system-warning {
+            max-width: 80%;
+            background: #ffe6e6; 
+            border: 1px solid #ff9999; 
+            padding: 8px 12px; 
+            margin-bottom: 4px; 
+            font-size: 0.85em; 
+            color: #cc0000; 
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+        }
     </style>
 </head>
 <body>
@@ -22,7 +44,8 @@
             <div class="collapse navbar-collapse justify-content-end">
                 <ul class="navbar-nav">
                     <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}">Home</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{ url_for('inbox') }}">Messages</a></li> <li class="nav-item"><a class="nav-link" href="{{ url_for('profile') }}">Profile</a></li>
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('inbox') }}">Messages</a></li> 
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('profile') }}">Profile</a></li>
                 </ul>
             </div>
         </div>
@@ -97,48 +120,77 @@
                 });
         }
 
+        // --- NEW DISPLAY FUNCTION (Handles Silent Warnings) ---
         function displayMessage(message) {
             const isSent = message.sender_uid === CURRENT_UID;
+            
+            // Create Wrapper
+            const wrapper = document.createElement('div');
+            wrapper.classList.add('message-wrapper');
+            wrapper.classList.add(isSent ? 'sent' : 'received');
+
+            // 1. ADD WARNING (Only if received AND flagged)
+            if (!isSent && message.is_suspicious) {
+                const warningBox = document.createElement('div');
+                warningBox.className = 'system-warning';
+                warningBox.innerHTML = `
+                    <div>
+                        <strong>⚠️ SAFETY ALERT</strong><br>
+                        System detected potential scam content.<br>
+                        Do not transfer money before verifying item.
+                    </div>
+                `;
+                wrapper.appendChild(warningBox);
+            }
+
+            // 2. ADD BUBBLE
             const bubble = document.createElement('div');
-            bubble.classList.add('message-bubble', 'd-flex');
-            bubble.classList.add(isSent ? 'sent' : 'received', isSent ? 'justify-content-end' : 'justify-content-start');
+            bubble.classList.add('message-bubble');
+            bubble.classList.add(isSent ? 'bubble-sent' : 'bubble-received');
+            bubble.textContent = message.text; // Text content prevents XSS
             
-            const content = document.createElement('div');
-            content.textContent = message.text;
-            content.style.maxWidth = '100%';
-            
-            bubble.appendChild(content);
-            CHAT_WINDOW.appendChild(bubble);
+            wrapper.appendChild(bubble);
+            CHAT_WINDOW.appendChild(wrapper);
         }
 
+        // --- SEND MESSAGE (Updated for Silent Flagging) ---
         MESSAGE_FORM.addEventListener('submit', async (e) => {
             e.preventDefault();
             const text = MESSAGE_INPUT.value.trim();
             if (!text) return;
 
-            const timestamp = firebase.firestore.FieldValue.serverTimestamp();
+            // Disable button
+            const btn = document.querySelector('button[type="submit"]');
+            btn.disabled = true;
+            btn.textContent = "Sending...";
 
             try {
-                await db.collection('chats').doc(ROOM_ID).collection('messages').add({
-                    text: text,
-                    timestamp: timestamp,
-                    sender_uid: CURRENT_UID
+                // 1. Send to Backend (AI will flag silently if needed)
+                const response = await fetch('/api/send_message', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        text: text, 
+                        room_id: ROOM_ID 
+                    })
                 });
 
-                await db.collection('chats').doc(ROOM_ID).set({
-                    participants: [CURRENT_UID, SELLER_UID],
-                    last_message: text,
-                    last_updated: timestamp,
-                    emails: {
-                        [CURRENT_UID]: CURRENT_EMAIL,
-                        [SELLER_UID]: OPPONENT_EMAIL
-                    }
-                }, { merge: true });
+                const data = await response.json();
 
-                MESSAGE_INPUT.value = ''; 
+                if (data.success) {
+                    // 2. Always clear input on success (even if flagged)
+                    MESSAGE_INPUT.value = ''; 
+                } else {
+                    // Only show alert for ACTUAL server errors, not scam blocks
+                    alert(data.message || "Error sending message");
+                }
             } catch (error) {
-                console.error("Error sending:", error);
-                alert("Failed to send message.");
+                console.error("Error:", error);
+                alert("Failed to send message. Server error.");
+            } finally {
+                // Re-enable button
+                btn.disabled = false;
+                btn.textContent = "Send";
             }
         });
         

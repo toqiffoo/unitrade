@@ -4,26 +4,36 @@ import random
 import string
 import datetime
 import firebase_admin
-from threading import Thread # <--- NEW IMPORT
+from threading import Thread 
+from dotenv import load_dotenv
 from firebase_admin import credentials, auth, firestore, storage
 from flask import Flask, render_template, request, redirect, url_for, session, make_response, jsonify
 from flask_mail import Mail, Message
 import google.auth.transport.requests
 import google.generativeai as genai
 
+# Load the hidden variables
+load_dotenv()
+
+# Get the key safely
+GEMINI_KEY = os.getenv('GEMINI_API_KEY')
+
+# Configure AI
+genai.configure(api_key=GEMINI_KEY)
+
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'YOUR_VERY_STRONG_SECRET_KEY_FOR_SESSIONS' 
 
 # --- MAILTRAP CONFIG ---
 app.config['MAIL_SERVER']='sandbox.smtp.mailtrap.io'
-app.config['MAIL_PORT'] = 2525 # Keep this as 587
+app.config['MAIL_PORT'] = 2525 
 app.config['MAIL_USERNAME'] = 'cad59bfc8c172b'
 app.config['MAIL_PASSWORD'] = '5856f8bc0a3f03'
 app.config['MAIL_USE_TLS'] = True
 app.config['MAIL_USE_SSL'] = False
 
 # --- AI CONFIGURATION ---
-GENAI_API_KEY = "AIzaSyD89qJ5nxKFEGiAFvBthBTO0cIO84gbRB8"
+GENAI_API_KEY = "AIzaSyCrD-l6d3WBIo29a2GoUzaWmZMqUJL5w2I"
 genai.configure(api_key=GENAI_API_KEY)
 model = genai.GenerativeModel('gemini-2.5-flash')
 
@@ -507,6 +517,113 @@ def generate_desc():
     except Exception as e:
         print(f"AI Error: {e}")
         return jsonify({'success': False, 'message': 'AI is busy. Please write manually.'})
+
+# --- AI SCAM DETECTOR (Silent Flagging Version) ---
+def check_is_scam(text):
+    print(f"DEBUG: Checking message for scam: {text}")
+
+    try:
+        prompt = f"""
+        You are a security AI for a student marketplace in Malaysia. Analyze this message.
+        
+        CONTEXT RULES:
+        - Students use "Manglish", "Bahasa Rojak", and Malay shortforms (e.g., "x nak", "yg", "blh", "cod"). THIS IS NORMAL.
+        - Do NOT flag a message as a scam just because of shortforms or informal grammar.
+        - ONLY flag if the intent is malicious (phishing, courier scams, bots).
+
+        SCAM INDICATORS (Return "SCAM"):
+        1. Sharing contact info (WhatsApp/Telegram) as the VERY FIRST message.
+        2. Mentions "Lalamove", "GrabExpress", or "Runner" picking up item without viewing.
+        3. Very formal English + High Urgency ("Kindly pay now", "Dear Sir").
+        4. Sending a suspicious link immediately.
+        5. Asking for money upfront without negotiation.
+
+        SAFE INDICATORS (Return "SAFE"):
+        1. Discussing price, condition, or location.
+        2. Sharing phone number to meet up (e.g., "watsap me 012...").
+        3. Casual student language / Malay Shortform (e.g., "bro can nego?", "meet at library?", "barang ada lagi?").
+
+        Message: "{text}"
+        
+        Reply ONLY with "SCAM" or "SAFE".
+        """
+        
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ]
+
+        response = model.generate_content(prompt, safety_settings=safety_settings)
+
+        if not response.parts: return False
+
+        ai_reply = response.text.strip().upper()
+        
+        #If AI said "SAFE", return False and "if "SCAM", return True
+        if "SCAM" in ai_reply or "WARNING" in ai_reply:
+            return True
+        
+        return False
+
+    except Exception as e:
+        print(f"CRITICAL AI ERROR: {e}") 
+        return False
+
+# --- API ROUTE (Silent Flagging Implementation) ---
+@app.route('/api/send_message', methods=['POST'])
+@login_required
+def api_send_message():
+    try:
+        # --- DEBUG LOGGING ---
+        print("DEBUG: Entering send_message route")
+        data = request.get_json()
+        text = data.get('text')
+        room_id = data.get('room_id')
+        user_uid = session.get('uid') 
+
+        print(f"DEBUG: Text: {text}, Room ID: {room_id}, User: {user_uid}")
+
+        if not room_id:
+            print("ERROR: Room ID is missing!")
+            return jsonify({'success': False, 'message': 'Room ID missing'}), 400
+        
+        # 1. Run the AI Check
+        is_suspicious = check_is_scam(text)
+        
+        # CHANGE: We NO LONGER block the message here.
+        if is_suspicious:
+            print("DEBUG: Message flagged as suspicious (Silent Flagging)")
+        
+        print("DEBUG: Preparing to save to DB...")
+
+        message_data = {
+            'text': text,
+            'timestamp': firestore.SERVER_TIMESTAMP,
+            'sender_uid': user_uid,
+            'is_suspicious': is_suspicious  # <--- SAVE THE FLAG TO DB
+        }
+        
+        # 2. Save to Firestore (using .document)
+        db.collection('chats').document(room_id).collection('messages').add(message_data)
+        print("DEBUG: Message added to subcollection")
+
+        # 3. Update Parent Doc
+        db.collection('chats').document(room_id).set({
+            'last_message': text,
+            'last_updated': firestore.SERVER_TIMESTAMP
+        }, merge=True)
+        print("DEBUG: Parent doc updated")
+        
+        # 4. ALWAYS return success to the sender (so scammers don't know they are caught)
+        return jsonify({'success': True})
+
+    except Exception as e:
+        print(f"CRITICAL SERVER ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': 'Server Error'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
